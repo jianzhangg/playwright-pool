@@ -1,9 +1,7 @@
-import { execFile as execFileCallback } from 'node:child_process';
 import { createWriteStream, WriteStream } from 'node:fs';
 import { access, mkdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { promisify } from 'node:util';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -11,6 +9,7 @@ import { CompatibilityCallToolResultSchema, type Tool } from '@modelcontextproto
 
 import { extractTabIndices } from './browser-tabs.js';
 import { buildSlotPaths } from './config.js';
+import { killProfileProcesses } from './profile-process.js';
 import type { PlaywrightPoolConfig, ToolCallResult } from './types.js';
 
 type SlotHandle = {
@@ -31,8 +30,6 @@ export type SlotRuntimeStatus = {
 const CURRENT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SLOT_SERVER_JS_PATH = path.join(CURRENT_DIR, 'slot-server.js');
 const SLOT_SERVER_TS_PATH = path.join(CURRENT_DIR, 'slot-server.ts');
-const execFile = promisify(execFileCallback);
-
 type SlotLaunchTarget = {
   command: string;
   args: string[];
@@ -207,17 +204,5 @@ export class SlotRuntime {
     } catch {
       return false;
     }
-  }
-}
-
-async function killProfileProcesses(profileDir: string): Promise<void> {
-  try {
-    await execFile('pkill', ['-f', profileDir]);
-  } catch (error) {
-    const errorLike = error as NodeJS.ErrnoException & { stderr?: string; code?: string | number };
-    if (Number(errorLike.code) === 1 || errorLike.stderr === '') {
-      return;
-    }
-    return;
   }
 }

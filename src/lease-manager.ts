@@ -88,6 +88,20 @@ export class LeaseManager {
     await rm(slotPaths.lockDir, { recursive: true, force: true });
   }
 
+  async releaseIfOwnedBy(slotId: number, ownerPid: number, configPath: string): Promise<boolean> {
+    const lease = await this.readLease(slotId);
+    if (!lease) {
+      return false;
+    }
+
+    if (lease.ownerPid !== ownerPid || lease.configPath !== configPath) {
+      return false;
+    }
+
+    await this.release(slotId);
+    return true;
+  }
+
   async releaseOwnedByPid(ownerPid: number): Promise<void> {
     const leases = await this.list();
     await Promise.all(

@@ -76,4 +76,30 @@ describe('LeaseManager', () => {
     expect(recycledLease.slotId).toBe(1);
     expect(recycledLease.threadId).toBe('thread-b');
   });
+
+  it('仅在 ownerPid 和 configPath 都匹配时释放指定 slot', async () => {
+    const manager = new LeaseManager(poolConfig, '/tmp/config.toml');
+
+    const lease = await manager.acquire('thread-a', 1001);
+
+    await expect(manager.releaseIfOwnedBy(lease.slotId, 1001, '/tmp/config.toml')).resolves.toBe(true);
+    await expect(manager.list()).resolves.toEqual([]);
+  });
+
+  it('归属不匹配时保留 lease', async () => {
+    const manager = new LeaseManager(poolConfig, '/tmp/config.toml');
+
+    const lease = await manager.acquire('thread-a', 1001);
+
+    await expect(manager.releaseIfOwnedBy(lease.slotId, 1002, '/tmp/config.toml')).resolves.toBe(false);
+    await expect(manager.releaseIfOwnedBy(lease.slotId, 1001, '/tmp/other-config.toml')).resolves.toBe(false);
+
+    await expect(manager.list()).resolves.toMatchObject([
+      {
+        slotId: lease.slotId,
+        ownerPid: 1001,
+        configPath: '/tmp/config.toml'
+      }
+    ]);
+  });
 });
