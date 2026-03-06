@@ -11,9 +11,16 @@ function ensureObject<T extends object>(value: unknown): T {
   return {} as T;
 }
 
-export function buildSlotPlaywrightConfig(config: PlaywrightPoolConfig, slotId: number): Record<string, unknown> {
+export function buildSlotPlaywrightConfig(
+  config: PlaywrightPoolConfig,
+  slotId: number,
+  platform: NodeJS.Platform = process.platform
+): Record<string, unknown> {
   const slotPaths = buildSlotPaths(config.pool, slotId);
-  const nextConfig = structuredClone(config.playwright) as Record<string, unknown>;
+  const nextConfig = applyDefaultChromiumSandbox(
+    structuredClone(config.playwright) as Record<string, unknown>,
+    platform
+  );
   const browser = ensureObject<Record<string, unknown>>(nextConfig.browser);
 
   browser.userDataDir = slotPaths.profileDir;
@@ -21,6 +28,24 @@ export function buildSlotPlaywrightConfig(config: PlaywrightPoolConfig, slotId: 
   nextConfig.outputDir = slotPaths.outputDir;
 
   return nextConfig;
+}
+
+export function applyDefaultChromiumSandbox(
+  config: Record<string, unknown>,
+  platform: NodeJS.Platform = process.platform
+): Record<string, unknown> {
+  const browser = ensureObject<Record<string, unknown>>(config.browser);
+  const launchOptions = ensureObject<Record<string, unknown>>(browser.launchOptions);
+
+  if (browser.browserName === 'chromium' && launchOptions.chromiumSandbox === undefined) {
+    launchOptions.chromiumSandbox = platform === 'linux'
+      ? launchOptions.channel !== 'chromium'
+      : true;
+  }
+
+  browser.launchOptions = launchOptions;
+  config.browser = browser;
+  return config;
 }
 
 export function resolveDefaultConfigPath(homeDir?: string): string {

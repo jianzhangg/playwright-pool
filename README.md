@@ -111,6 +111,11 @@ enabled = true
 - `[playwright]`
   - 下游 Playwright MCP 配置
 
+如果没有显式设置 `playwright.browser.launchOptions.chromiumSandbox`，`playwright_pool` 会和官方 `@playwright/mcp` CLI 保持一致：
+
+- macOS / Windows：默认开启 sandbox
+- Linux：`channel = "chromium"` 时默认关闭，其它 Chromium channel 默认开启
+
 ## 工具说明
 
 `playwright_pool` 对外暴露两类工具：
