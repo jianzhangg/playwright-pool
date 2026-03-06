@@ -157,12 +157,52 @@ enabled = true
 - `leases`：共享租约
 - `logs`：slot 子进程日志
 
+## 异常退出与自动回收
+
+当客户端正常关闭或异常断开时，`playwright_pool` 会尽快回收自己持有的 slot：
+
+- 主 MCP 进程会监听：
+  - `transport.onclose`
+  - `stdin end/close`
+  - `SIGINT` / `SIGTERM`
+  - 直接父进程失联
+  - `npx -> npm exec -> node` 启动链已经脱离宿主父进程
+- `slot-server` 会继续监听自己的：
+  - `transport.onclose`
+  - `stdin end/close`
+  - 直接父进程失联
+
+一旦命中这些条件：
+
+- 主进程会停止续租并释放自己持有的 lease
+- 对应 `slot-server` 会校验 lease 归属后删除 lease
+- 只清理仍归当前 slot 所有者持有的 Chrome 进程，避免误杀新会话
+
+这套逻辑主要用于处理：
+
+- 直接关闭 Codex / MCP 客户端
+- 强制退出 Codex
+- `npx` wrapper 被遗留成孤儿进程
+
 ## 截图和输出文件
 
 默认情况下：
 
 - `browser_take_screenshot` 的文件会落到当前 slot 的 `output/{id}`
 - `browser_snapshot` 主要返回页面快照文本，不一定产出图片文件
+
+## 排障入口
+
+如果怀疑 slot 或 Chrome 没有被及时清理，可以优先看这几个位置：
+
+- `~/Documents/playwright-pool/leases/slot-*.json`
+  - 看 `ownerPid` 和 `lastHeartbeatAt` 是否还在刷新
+- `~/Documents/playwright-pool/logs/slot-*.log`
+  - 看 `slot-server` 的异常、清理和退出日志
+- `~/Documents/playwright-pool/output/{id}/console-*.log`
+  - 看页面层面的 console 输出
+
+如果 `leases` 还在持续刷新，通常说明不是 `slot-server` 清理失败，而是主 `playwright_pool` 进程本身还活着。
 
 ## 需要安装什么
 

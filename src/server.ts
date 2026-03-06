@@ -18,6 +18,7 @@ import { initializePlaywrightPool } from './init.js';
 import { LeaseManager } from './lease-manager.js';
 import { buildSlotPlaywrightConfig, resolveDefaultConfigPath } from './playwright-config.js';
 import { PoolService } from './pool-service.js';
+import { createCleanupOnce, startDetachedLauncherWatcher, startParentProcessWatcher } from './slot-guardian.js';
 import { SlotRuntime } from './slot-runtime.js';
 import { resolveRegisteredTools } from './tool-catalog.js';
 import { resolveDefaultToolManifestPath } from './tool-manifest.js';
@@ -89,7 +90,7 @@ async function main(): Promise<void> {
   const server = new Server(
     {
       name: 'playwright_pool',
-      version: '0.1.0'
+      version: '0.1.3'
     },
     {
       capabilities: {
@@ -116,33 +117,60 @@ async function main(): Promise<void> {
   });
 
   const transport = new StdioServerTransport();
-  let shuttingDown = false;
-  const shutdown = async () => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
+  let stopWatchingParent: () => void = () => undefined;
+  let stopWatchingLauncher: () => void = () => undefined;
+  const shutdown = createCleanupOnce(async () => {
+    stopWatchingParent();
+    stopWatchingLauncher();
     await poolService.shutdown().catch(() => undefined);
     await slotRuntime.closeAll().catch(() => undefined);
     await server.close().catch(() => undefined);
+  });
+
+  const shutdownAndExit = (exitCode: number, reason: string) => {
+    process.stderr.write(`[playwright_pool] ${reason}\n`);
+    void shutdown().finally(() => process.exit(exitCode));
   };
 
   transport.onclose = () => {
     void shutdown();
   };
+  process.stdin.on('end', () => {
+    shutdownAndExit(0, 'stdin end，准备回收所有 slot');
+  });
+  process.stdin.on('close', () => {
+    shutdownAndExit(0, 'stdin close，准备回收所有 slot');
+  });
   process.on('SIGINT', () => {
-    void shutdown().finally(() => process.exit(0));
+    shutdownAndExit(0, '收到 SIGINT，准备回收所有 slot');
   });
   process.on('SIGTERM', () => {
-    void shutdown().finally(() => process.exit(0));
+    shutdownAndExit(0, '收到 SIGTERM，准备回收所有 slot');
   });
   process.on('uncaughtException', (error) => {
     process.stderr.write(`${error.stack ?? error.message}\n`);
-    void shutdown().finally(() => process.exit(1));
+    shutdownAndExit(1, '发生 uncaughtException，准备回收所有 slot');
   });
   process.on('unhandledRejection', (reason) => {
     process.stderr.write(`${String(reason)}\n`);
-    void shutdown().finally(() => process.exit(1));
+    shutdownAndExit(1, '发生 unhandledRejection，准备回收所有 slot');
+  });
+
+  stopWatchingParent = startParentProcessWatcher({
+    parentPid: process.ppid,
+    onParentExit: async () => {
+      process.stderr.write('[playwright_pool] 检测到直接父进程失联，准备回收所有 slot\n');
+      await shutdown();
+      process.exit(0);
+    }
+  });
+  stopWatchingLauncher = startDetachedLauncherWatcher({
+    currentPid: process.pid,
+    onDetached: async () => {
+      process.stderr.write('[playwright_pool] 检测到 npx/npm 启动链已脱离父进程，准备回收所有 slot\n');
+      await shutdown();
+      process.exit(0);
+    }
   });
 
   await server.connect(transport);

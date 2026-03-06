@@ -1,6 +1,6 @@
 {
   "name": "@jianzhangg/playwright-pool",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "把多个持久化 Playwright MCP profile 池化到单个本地 MCP 服务后面。",
   "license": "MIT",
   "author": "jianzhangg",

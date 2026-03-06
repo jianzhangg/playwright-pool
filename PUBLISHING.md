@@ -31,6 +31,13 @@ npm run build
 npm_config_cache=/tmp/playwright-pool-npm-cache npm pack --dry-run
 ```
 
+建议在发布前额外做一轮异常退出 smoke test：
+
+- 启动一个真实 MCP 客户端并占用一个 slot
+- 直接关闭或强退宿主客户端
+- 确认对应 `leases/slot-*.json` 被删除
+- 确认对应 profile 下的 Chrome 进程被回收
+
 ### 2. 登录 npm
 
 ```bash
@@ -53,6 +60,8 @@ curl -I https://registry.npmjs.org/@jianzhangg%2fplaywright-pool
 cd /path/to/playwright-pool
 npm publish
 ```
+
+如果账号启用了 2FA 发布保护，按 npm 提示完成网页确认或输入 OTP。
 
 ## 发布后建议
 

@@ -37,41 +37,44 @@ async function main(): Promise<void> {
     stopWatchingParent();
     const released = await leaseManager.releaseIfOwnedBy(slotId, parentPid, configPath);
     if (released) {
+      process.stderr.write(`[slot ${slotId}] 回收仍归当前父进程所有的 lease 与 Chrome\n`);
       await killProfileProcesses(slotPaths.profileDir);
     }
     await server.close().catch(() => undefined);
   });
 
-  const cleanupAndExit = (exitCode: number) => {
+  const cleanupAndExit = (exitCode: number, reason: string) => {
+    process.stderr.write(`[slot ${slotId}] ${reason}\n`);
     void runCleanup().finally(() => process.exit(exitCode));
   };
 
   transport.onclose = () => {
-    cleanupAndExit(0);
+    cleanupAndExit(0, 'transport 关闭，准备退出');
   };
   process.stdin.on('end', () => {
-    cleanupAndExit(0);
+    cleanupAndExit(0, 'stdin end，准备退出');
   });
   process.stdin.on('close', () => {
-    cleanupAndExit(0);
+    cleanupAndExit(0, 'stdin close，准备退出');
   });
   process.on('SIGINT', () => {
-    cleanupAndExit(0);
+    cleanupAndExit(0, '收到 SIGINT，准备退出');
   });
   process.on('SIGTERM', () => {
-    cleanupAndExit(0);
+    cleanupAndExit(0, '收到 SIGTERM，准备退出');
   });
   process.on('uncaughtException', (error) => {
     process.stderr.write(`${error.stack ?? error.message}\n`);
-    cleanupAndExit(1);
+    cleanupAndExit(1, '发生 uncaughtException，准备退出');
   });
   process.on('unhandledRejection', (reason) => {
     process.stderr.write(`${String(reason)}\n`);
-    cleanupAndExit(1);
+    cleanupAndExit(1, '发生 unhandledRejection，准备退出');
   });
   stopWatchingParent = startParentProcessWatcher({
     parentPid,
     onParentExit: async () => {
+      process.stderr.write(`[slot ${slotId}] 检测到父进程失联，准备退出\n`);
       await runCleanup();
       process.exit(0);
     }
