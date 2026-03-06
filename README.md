@@ -26,7 +26,7 @@
 ### 1. 初始化
 
 ```bash
-npx @jianzhangg/playwright-pool init
+npx @jianzhangg/playwright-pool@latest init
 ```
 
 初始化会自动：
@@ -45,7 +45,7 @@ npx @jianzhangg/playwright-pool init
 ### 2. 启动 MCP
 
 ```bash
-npx @jianzhangg/playwright-pool
+npx @jianzhangg/playwright-pool@latest
 ```
 
 默认会读取：
@@ -57,7 +57,7 @@ npx @jianzhangg/playwright-pool
 也支持显式指定：
 
 ```bash
-npx @jianzhangg/playwright-pool --config /absolute/path/to/config.toml
+npx @jianzhangg/playwright-pool@latest --config /absolute/path/to/config.toml
 ```
 
 ## MCP 客户端接入
@@ -65,12 +65,12 @@ npx @jianzhangg/playwright-pool --config /absolute/path/to/config.toml
 ### 通用 MCP 客户端
 
 - 启动命令：`npx`
-- 参数：`@jianzhangg/playwright-pool`
+- 参数：`@jianzhangg/playwright-pool@latest`
 
 如果客户端不支持默认配置目录，或者你需要切换配置文件，则填写：
 
 - 启动命令：`npx`
-- 参数 1：`@jianzhangg/playwright-pool`
+- 参数 1：`@jianzhangg/playwright-pool@latest`
 - 参数 2：`--config`
 - 参数 3：`/absolute/path/to/config.toml`
 
@@ -79,7 +79,7 @@ npx @jianzhangg/playwright-pool --config /absolute/path/to/config.toml
 ```toml
 [mcp_servers.playwright_pool]
 command = "npx"
-args = ["@jianzhangg/playwright-pool"]
+args = ["@jianzhangg/playwright-pool@latest"]
 enabled = true
 ```
 
@@ -88,7 +88,7 @@ enabled = true
 ```toml
 [mcp_servers.playwright_pool]
 command = "npx"
-args = ["@jianzhangg/playwright-pool", "--config", "/absolute/path/to/config.toml"]
+args = ["@jianzhangg/playwright-pool@latest", "--config", "/absolute/path/to/config.toml"]
 enabled = true
 ```
 
