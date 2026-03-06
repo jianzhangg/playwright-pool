@@ -1,0 +1,4 @@
+[pool]
+size = 3
+outputDirTemplate = "/tmp/pw/output/{id}"
+leaseDir = "/tmp/pw/leases"

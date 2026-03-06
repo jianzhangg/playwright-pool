@@ -1,0 +1,17 @@
+[pool]
+size = 10
+sourceProfileDir = "/Users/your-name/Library/Application Support/Google/Chrome"
+profileDirTemplate = "/Users/your-name/Documents/playwright-pool/profiles/{id}"
+outputDirTemplate = "/Users/your-name/Documents/playwright-pool/output/{id}"
+leaseDir = "/Users/your-name/Documents/playwright-pool/leases"
+logsDir = "/Users/your-name/Documents/playwright-pool/logs"
+heartbeatSeconds = 10
+staleLeaseSeconds = 120
+sessionKeyEnv = "CODEX_THREAD_ID"
+
+[playwright.browser]
+browserName = "chromium"
+
+[playwright.browser.launchOptions]
+channel = "chrome"
+headless = false

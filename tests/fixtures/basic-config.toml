@@ -1,0 +1,17 @@
+[pool]
+size = 3
+sourceProfileDir = "/tmp/pw/source"
+profileDirTemplate = "/tmp/pw/profiles/{id}"
+outputDirTemplate = "/tmp/pw/output/{id}"
+leaseDir = "/tmp/pw/leases"
+logsDir = "/tmp/pw/logs"
+heartbeatSeconds = 5
+staleLeaseSeconds = 30
+sessionKeyEnv = "CODEX_THREAD_ID"
+
+[playwright.browser]
+browserName = "chromium"
+
+[playwright.browser.launchOptions]
+channel = "msedge"
+headless = false

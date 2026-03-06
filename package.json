@@ -1,0 +1,63 @@
+{
+  "name": "@jianzhangg/playwright-pool",
+  "version": "0.1.0",
+  "description": "把多个持久化 Playwright MCP profile 池化到单个本地 MCP 服务后面。",
+  "license": "MIT",
+  "author": "jianzhangg",
+  "keywords": [
+    "mcp",
+    "playwright",
+    "chrome",
+    "browser-automation",
+    "codex",
+    "profile-pool"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jianzhangg/playwright-pool.git"
+  },
+  "homepage": "https://github.com/jianzhangg/playwright-pool#readme",
+  "bugs": {
+    "url": "https://github.com/jianzhangg/playwright-pool/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "bin": {
+    "playwright-pool": "dist/src/server.js"
+  },
+  "files": [
+    "dist/src/*.js",
+    "LICENSE",
+    "README.md",
+    "PUBLISHING.md",
+    "tool-manifest.json",
+    "playwright-pool.example.toml"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:golden": "tsx src/build-golden-profile.ts",
+    "dev": "tsx src/server.ts --config ./playwright-pool.local.toml",
+    "init:local": "tsx src/server.ts init --config ./playwright-pool.local.toml --force",
+    "prepare:profiles": "tsx src/prepare-profiles.ts --config ./playwright-pool.local.toml",
+    "prepack": "npm run build",
+    "update:tool-manifest": "tsx src/update-tool-manifest.ts --config ./playwright-pool.local.toml --output ./tool-manifest.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.0",
+    "@playwright/mcp": "^0.0.68",
+    "toml": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.2.4"
+  }
+}
