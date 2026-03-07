@@ -1,5 +1,6 @@
 import type { Root } from '@modelcontextprotocol/sdk/types.js';
 
+import { measureSerializedBytes, noopServerLogger, type ServerLoggerLike } from './server-logger.js';
 import type { LeaseRecord, ToolCallResult } from './types.js';
 
 type LeaseManagerLike = {
@@ -25,6 +26,7 @@ type PoolServiceOptions = {
   heartbeatSeconds?: number;
   leaseManager: LeaseManagerLike;
   slotRuntime: SlotRuntimeLike;
+  logger?: ServerLoggerLike;
 };
 
 type ToolRequest = {
@@ -34,8 +36,11 @@ type ToolRequest = {
 
 export class PoolService {
   private readonly heartbeatTimers = new Map<number, NodeJS.Timeout>();
+  private readonly logger: ServerLoggerLike;
 
-  constructor(private readonly options: PoolServiceOptions) {}
+  constructor(private readonly options: PoolServiceOptions) {
+    this.logger = options.logger ?? noopServerLogger;
+  }
 
   async callTool(request: ToolRequest, env: NodeJS.ProcessEnv, roots: Root[] = []): Promise<ToolCallResult> {
     if (request.name === 'pool_status') {
@@ -47,10 +52,67 @@ export class PoolService {
       throw new Error(`缺少会话标识环境变量 ${this.options.sessionKeyEnv}`);
     }
 
+    const args = request.arguments ?? {};
+    const argsBytes = measureSerializedBytes(args);
     const lease = await this.options.leaseManager.acquire(threadId, process.pid);
+    this.logger.info('lease_acquired', {
+      slotId: lease.slotId,
+      threadId,
+      ownerPid: lease.ownerPid
+    });
+
     this.ensureHeartbeat(lease.slotId);
-    await this.options.leaseManager.heartbeat(lease.slotId);
-    return this.options.slotRuntime.callTool(lease.slotId, request.name, request.arguments ?? {}, roots);
+
+    try {
+      const refreshedLease = await this.options.leaseManager.heartbeat(lease.slotId);
+      this.logger.info('heartbeat_tick', {
+        slotId: lease.slotId,
+        active: refreshedLease !== null,
+        reason: 'tool_call'
+      });
+    } catch (error) {
+      this.logger.error('heartbeat_error', {
+        slotId: lease.slotId,
+        reason: 'tool_call',
+        error: serializeError(error)
+      });
+      throw error;
+    }
+
+    const startedAt = Date.now();
+    this.logger.info('tool_call_start', {
+      slotId: lease.slotId,
+      threadId,
+      tool: request.name,
+      rootsCount: roots.length,
+      argsBytes
+    });
+
+    try {
+      const result = await this.options.slotRuntime.callTool(lease.slotId, request.name, args, roots);
+      this.logger.info('tool_call_end', {
+        slotId: lease.slotId,
+        threadId,
+        tool: request.name,
+        rootsCount: roots.length,
+        argsBytes,
+        resultBytes: measureSerializedBytes(result),
+        durationMs: Date.now() - startedAt,
+        isError: result.isError ?? false
+      });
+      return result;
+    } catch (error) {
+      this.logger.error('tool_call_error', {
+        slotId: lease.slotId,
+        threadId,
+        tool: request.name,
+        rootsCount: roots.length,
+        argsBytes,
+        durationMs: Date.now() - startedAt,
+        error: serializeError(error)
+      });
+      throw error;
+    }
   }
 
   async shutdown(): Promise<void> {
@@ -88,10 +150,44 @@ export class PoolService {
     }
 
     const intervalMs = (this.options.heartbeatSeconds ?? 10) * 1000;
+    this.logger.info('heartbeat_timer_started', {
+      slotId,
+      intervalMs
+    });
     const timer = setInterval(() => {
-      void this.options.leaseManager.heartbeat(slotId);
+      void this.runHeartbeat(slotId);
     }, intervalMs);
     timer.unref?.();
     this.heartbeatTimers.set(slotId, timer);
   }
+
+  private async runHeartbeat(slotId: number): Promise<void> {
+    try {
+      const lease = await this.options.leaseManager.heartbeat(slotId);
+      this.logger.info('heartbeat_tick', {
+        slotId,
+        active: lease !== null
+      });
+      if (!lease) {
+        const timer = this.heartbeatTimers.get(slotId);
+        if (timer) {
+          clearInterval(timer);
+          this.heartbeatTimers.delete(slotId);
+        }
+      }
+    } catch (error) {
+      this.logger.error('heartbeat_error', {
+        slotId,
+        error: serializeError(error)
+      });
+    }
+  }
+}
+
+function serializeError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.stack ?? error.message;
+  }
+
+  return String(error);
 }

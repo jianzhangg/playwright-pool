@@ -20,6 +20,7 @@ import { initializePlaywrightPool } from './init.js';
 import { LeaseManager } from './lease-manager.js';
 import { buildSlotPlaywrightConfig, resolveDefaultConfigPath } from './playwright-config.js';
 import { PoolService } from './pool-service.js';
+import { createServerLogger } from './server-logger.js';
 import { createCleanupOnce, startDetachedLauncherWatcher, startParentProcessWatcher } from './slot-guardian.js';
 import { SlotRuntime } from './slot-runtime.js';
 import { resolveRegisteredTools } from './tool-catalog.js';
@@ -108,12 +109,22 @@ async function main(): Promise<void> {
     }
     throw error;
   });
+  const { logger, logFile: serverLogFile } = await createServerLogger(config.pool.logsDir);
 
   // 这里调用一次是为了尽早暴露配置错误，并确保默认 slot 覆写逻辑可用。
   buildSlotPlaywrightConfig(config, 1);
 
+  logger.info('server_start', {
+    version: '0.1.8',
+    configPath,
+    heartbeatSeconds: config.pool.heartbeatSeconds,
+    poolSize: config.pool.size,
+    sessionKeyEnv: config.pool.sessionKeyEnv,
+    serverLogFile
+  });
+
   const leaseManager = new LeaseManager(config.pool, configPath);
-  const slotRuntime = new SlotRuntime(config, configPath);
+  const slotRuntime = new SlotRuntime(config, configPath, logger);
   const discoveredTools = await resolveRegisteredTools(resolveDefaultToolManifestPath(), slotRuntime);
   const sessionFallbackKey = `playwright-pool:${process.pid}:${randomUUID()}`;
   const poolService = new PoolService({
@@ -124,13 +135,14 @@ async function main(): Promise<void> {
     slotRuntime: {
       callTool: (slotId, toolName, toolArgs, roots) => slotRuntime.callTool(slotId, toolName, toolArgs, roots),
       listStatuses: () => slotRuntime.listStatuses()
-    }
+    },
+    logger
   });
 
   const server = new Server(
     {
       name: 'playwright_pool',
-      version: '0.1.7'
+      version: '0.1.8'
     },
     {
       capabilities: {
@@ -161,20 +173,37 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   let stopWatchingParent: () => void = () => undefined;
   let stopWatchingLauncher: () => void = () => undefined;
+  let shutdownReason = 'unknown';
   const shutdown = createCleanupOnce(async () => {
+    logger.info('server_shutdown_start', {
+      reason: shutdownReason
+    });
     stopWatchingParent();
     stopWatchingLauncher();
     await poolService.shutdown().catch(() => undefined);
     await slotRuntime.closeAll().catch(() => undefined);
     await server.close().catch(() => undefined);
+    logger.info('server_shutdown_complete', {
+      reason: shutdownReason
+    });
+    await logger.close().catch(() => undefined);
   });
 
   const shutdownAndExit = (exitCode: number, reason: string) => {
+    shutdownReason = reason;
+    logger.info('server_shutdown_requested', {
+      exitCode,
+      reason
+    });
     process.stderr.write(`[playwright_pool] ${reason}\n`);
     void shutdown().finally(() => process.exit(exitCode));
   };
 
   transport.onclose = () => {
+    if (shutdownReason === 'unknown') {
+      shutdownReason = 'transport.onclose';
+    }
+    logger.info('server_transport_close', {});
     void shutdown();
   };
   process.stdin.on('end', () => {
@@ -190,10 +219,16 @@ async function main(): Promise<void> {
     shutdownAndExit(0, '收到 SIGTERM，准备回收所有 slot');
   });
   process.on('uncaughtException', (error) => {
+    logger.error('uncaught_exception', {
+      error: error.stack ?? error.message
+    });
     process.stderr.write(`${error.stack ?? error.message}\n`);
     shutdownAndExit(1, '发生 uncaughtException，准备回收所有 slot');
   });
   process.on('unhandledRejection', (reason) => {
+    logger.error('unhandled_rejection', {
+      error: String(reason)
+    });
     process.stderr.write(`${String(reason)}\n`);
     shutdownAndExit(1, '发生 unhandledRejection，准备回收所有 slot');
   });
@@ -201,6 +236,10 @@ async function main(): Promise<void> {
   stopWatchingParent = startParentProcessWatcher({
     parentPid: process.ppid,
     onParentExit: async () => {
+      shutdownReason = 'direct_parent_exit';
+      logger.info('direct_parent_exit', {
+        parentPid: process.ppid
+      });
       process.stderr.write('[playwright_pool] 检测到直接父进程失联，准备回收所有 slot\n');
       await shutdown();
       process.exit(0);
@@ -209,6 +248,8 @@ async function main(): Promise<void> {
   stopWatchingLauncher = startDetachedLauncherWatcher({
     currentPid: process.pid,
     onDetached: async () => {
+      shutdownReason = 'detached_launcher_chain';
+      logger.info('launcher_chain_detached', {});
       process.stderr.write('[playwright_pool] 检测到 npx/npm 启动链已脱离父进程，准备回收所有 slot\n');
       await shutdown();
       process.exit(0);
@@ -216,6 +257,9 @@ async function main(): Promise<void> {
   });
 
   await server.connect(transport);
+  logger.info('server_connected', {
+    serverLogFile
+  });
 }
 
 function describeBrowser(browser: 'chrome' | 'edge'): string {

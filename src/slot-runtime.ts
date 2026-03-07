@@ -1,4 +1,4 @@
-import { createWriteStream, WriteStream } from 'node:fs'
+import { createWriteStream, type WriteStream } from 'node:fs'
 import { access, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -10,6 +10,7 @@ import { extractTabIndices } from './browser-tabs.js'
 import { buildSlotPaths } from './config.js'
 import { buildForwardedRootsSignature, ForwardedRootsState } from './forwarded-roots.js'
 import { killProfileProcesses } from './profile-process.js'
+import { noopServerLogger, type ServerLoggerLike } from './server-logger.js'
 import { StdioClientTransport } from './stdio-client-transport.js'
 import type { PlaywrightPoolConfig, ToolCallResult } from './types.js'
 
@@ -22,6 +23,7 @@ type SlotHandle = {
   profileDir: string
   release: () => void
   rootsSignature: string
+  slotId: number
   transport: StdioClientTransport
 }
 
@@ -47,7 +49,8 @@ export class SlotRuntime {
 
   constructor(
     private readonly config: PlaywrightPoolConfig,
-    private readonly configPath: string
+    private readonly configPath: string,
+    private readonly logger: ServerLoggerLike = noopServerLogger
   ) {}
 
   async discoverTools(): Promise<Tool[]> {
@@ -96,6 +99,9 @@ export class SlotRuntime {
   async closeAll(): Promise<void> {
     const handles = Array.from(this.clients.values())
     this.clients.clear()
+    this.logger.info('slot_runtime_close_all', {
+      handleCount: handles.length
+    })
     await Promise.all(handles.map((handle) => this.stopClient(handle)))
   }
 
@@ -104,9 +110,19 @@ export class SlotRuntime {
     if (existingHandle) {
       const nextRootsSignature = buildForwardedRootsSignature(roots, existingHandle.fallbackRootPath)
       if (nextRootsSignature === existingHandle.rootsSignature) {
+        this.logger.info('slot_client_reuse', {
+          slotId,
+          slotPid: existingHandle.pid,
+          rootsCount: roots.length
+        })
         return existingHandle
       }
 
+      this.logger.info('slot_client_replace', {
+        slotId,
+        previousSlotPid: existingHandle.pid,
+        rootsCount: roots.length
+      })
       this.clients.delete(slotId)
       await this.stopClient(existingHandle)
     }
@@ -138,6 +154,12 @@ export class SlotRuntime {
     const logStream = createWriteStream(slotPaths.logFile, { flags: 'a' })
     const stderrStream = transport.stderr
     stderrStream?.pipe(logStream)
+
+    this.logger.info('slot_client_start', {
+      slotId,
+      logFile: slotPaths.logFile,
+      rootsCount: roots.length
+    })
 
     const client = new Client(
       {
@@ -172,6 +194,10 @@ export class SlotRuntime {
     }
 
     transport.onclose = () => {
+      this.logger.info('slot_transport_close', {
+        slotId,
+        slotPid: handle?.pid ?? transport.pid ?? null
+      })
       releaseHandle()
     }
 
@@ -186,13 +212,25 @@ export class SlotRuntime {
       profileDir: slotPaths.profileDir,
       release: releaseHandle,
       rootsSignature: forwardedRoots.signature(),
+      slotId,
       transport
     }
+
+    this.logger.info('slot_client_connected', {
+      slotId,
+      slotPid: transport.pid,
+      rootsCount: roots.length,
+      logFile: slotPaths.logFile
+    })
 
     return handle
   }
 
   private async stopClient(handle: SlotHandle): Promise<void> {
+    this.logger.info('slot_client_stop', {
+      slotId: handle.slotId,
+      slotPid: handle.pid
+    })
     const tabs = await handle.client
       .callTool(
         {

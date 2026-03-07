@@ -184,11 +184,91 @@ describe('PoolService', () => {
     expect(result.content[0]?.text).toBe('ok');
   });
 
-  it('拿到 slot 后会按心跳间隔续租，并在关闭时释放当前进程租约', async () => {
+  it('调用工具时会记录开始和结束日志', async () => {
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn()
+    };
+    const service = new PoolService({
+      sessionKeyEnv: 'CODEX_THREAD_ID',
+      sessionFallbackKey: 'playwright-pool:server-1',
+      leaseManager: {
+        acquire: vi.fn().mockResolvedValue({
+          slotId: 1,
+          threadId: 'thread-a',
+          ownerPid: process.pid,
+          acquiredAt: '2026-03-06T00:00:00.000Z',
+          lastHeartbeatAt: '2026-03-06T00:00:00.000Z',
+          configPath: '/tmp/playwright-pool.local.toml'
+        }),
+        heartbeat: vi.fn().mockResolvedValue({
+          slotId: 1,
+          threadId: 'thread-a',
+          ownerPid: process.pid,
+          acquiredAt: '2026-03-06T00:00:00.000Z',
+          lastHeartbeatAt: '2026-03-06T00:00:00.000Z',
+          configPath: '/tmp/playwright-pool.local.toml'
+        }),
+        releaseOwnedByPid: vi.fn(),
+        list: vi.fn().mockResolvedValue([])
+      },
+      slotRuntime: {
+        callTool: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: 'ok' }]
+        })
+      },
+      logger
+    });
+
+    await service.callTool(
+      {
+        name: 'browser_snapshot',
+        arguments: { full: true }
+      },
+      {
+        CODEX_THREAD_ID: 'thread-a'
+      }
+    );
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'tool_call_start',
+      expect.objectContaining({
+        slotId: 1,
+        threadId: 'thread-a',
+        tool: 'browser_snapshot',
+        rootsCount: 0,
+        argsBytes: expect.any(Number)
+      })
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'tool_call_end',
+      expect.objectContaining({
+        slotId: 1,
+        threadId: 'thread-a',
+        tool: 'browser_snapshot',
+        resultBytes: expect.any(Number),
+        durationMs: expect.any(Number)
+      })
+    );
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('拿到 slot 后会按心跳间隔续租，并记录心跳日志', async () => {
     vi.useFakeTimers();
 
-    const heartbeat = vi.fn().mockResolvedValue(null);
+    const heartbeat = vi.fn().mockResolvedValue({
+      slotId: 1,
+      threadId: 'thread-a',
+      ownerPid: process.pid,
+      acquiredAt: '2026-03-06T00:00:00.000Z',
+      lastHeartbeatAt: '2026-03-06T00:00:01.000Z',
+      configPath: '/tmp/playwright-pool.local.toml'
+    });
     const releaseOwnedByPid = vi.fn().mockResolvedValue(undefined);
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn()
+    };
     const service = new PoolService({
       sessionKeyEnv: 'CODEX_THREAD_ID',
       sessionFallbackKey: 'playwright-pool:server-1',
@@ -210,7 +290,8 @@ describe('PoolService', () => {
         callTool: vi.fn().mockResolvedValue({
           content: [{ type: 'text', text: 'ok' }]
         })
-      }
+      },
+      logger
     });
 
     await service.callTool(
@@ -223,8 +304,23 @@ describe('PoolService', () => {
       }
     );
 
+    expect(logger.info).toHaveBeenCalledWith(
+      'heartbeat_timer_started',
+      expect.objectContaining({
+        slotId: 1,
+        intervalMs: 1000
+      })
+    );
+
     await vi.advanceTimersByTimeAsync(1000);
     expect(heartbeat).toHaveBeenCalledWith(1);
+    expect(logger.info).toHaveBeenCalledWith(
+      'heartbeat_tick',
+      expect.objectContaining({
+        slotId: 1,
+        active: true
+      })
+    );
 
     await service.shutdown();
     expect(releaseOwnedByPid).toHaveBeenCalledWith(process.pid);

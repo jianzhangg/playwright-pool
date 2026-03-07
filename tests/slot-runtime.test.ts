@@ -97,7 +97,11 @@ describe('SlotRuntime', () => {
     vi.clearAllMocks();
   });
 
-  it('slot 子进程自然关闭后会摘掉当前 handle', async () => {
+  it('slot 子进程自然关闭后会摘掉当前 handle，并记录生命周期日志', async () => {
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn()
+    };
     const runtime = new SlotRuntime(
       {
         pool: {
@@ -112,18 +116,45 @@ describe('SlotRuntime', () => {
         },
         playwright: {}
       },
-      path.join(rootDir, 'config.toml')
+      path.join(rootDir, 'config.toml'),
+      logger
     );
 
     await runtime.callTool(1, 'browser_snapshot', {}, []);
     expect(runtime.listStatuses()[0]).toMatchObject({ started: true, pid: 1000 });
+    expect(logger.info).toHaveBeenCalledWith(
+      'slot_client_start',
+      expect.objectContaining({
+        slotId: 1,
+        logFile: expect.stringContaining('slot-1.log')
+      })
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      'slot_client_connected',
+      expect.objectContaining({
+        slotId: 1,
+        slotPid: 1000,
+        rootsCount: 0
+      })
+    );
 
     (mockState.transports[0] as { onclose?: () => void } | undefined)?.onclose?.();
 
     expect(runtime.listStatuses()[0]).toMatchObject({ started: false, pid: null });
+    expect(logger.info).toHaveBeenCalledWith(
+      'slot_transport_close',
+      expect.objectContaining({
+        slotId: 1,
+        slotPid: 1000
+      })
+    );
   });
 
-  it('旧 handle 关闭时不会误删已替换的新 handle', async () => {
+  it('旧 handle 关闭时不会误删已替换的新 handle，并记录替换日志', async () => {
+    const logger = {
+      info: vi.fn(),
+      error: vi.fn()
+    };
     const runtime = new SlotRuntime(
       {
         pool: {
@@ -138,7 +169,8 @@ describe('SlotRuntime', () => {
         },
         playwright: {}
       },
-      path.join(rootDir, 'config.toml')
+      path.join(rootDir, 'config.toml'),
+      logger
     );
 
     await runtime.callTool(1, 'browser_snapshot', {}, [{ uri: 'file:///a', name: 'a' }]);
@@ -146,6 +178,13 @@ describe('SlotRuntime', () => {
 
     await runtime.callTool(1, 'browser_snapshot', {}, [{ uri: 'file:///b', name: 'b' }]);
     expect(runtime.listStatuses()[0]).toMatchObject({ started: true, pid: 1001 });
+    expect(logger.info).toHaveBeenCalledWith(
+      'slot_client_replace',
+      expect.objectContaining({
+        slotId: 1,
+        previousSlotPid: 1000
+      })
+    );
 
     oldTransport?.onclose?.();
 
