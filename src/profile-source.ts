@@ -33,6 +33,7 @@ type BrowserMetadata = {
 
 const SOURCE_TO_PROCESS_NAME: Array<[pattern: string, processName: string]> = [
   ['/Microsoft Edge', 'Microsoft Edge'],
+  ['/Microsoft/Edge', 'Microsoft Edge'],
   ['/Google/Chrome', 'Google Chrome']
 ];
 

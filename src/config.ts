@@ -32,6 +32,14 @@ function normalizePath(rawPath: string): string {
   return rawPath;
 }
 
+function resolvePathApi(samplePath: string): typeof path.posix | typeof path.win32 {
+  return /^[A-Za-z]:[\\/]/.test(samplePath) || samplePath.includes('\\') ? path.win32 : path.posix;
+}
+
+function joinPreservingPathStyle(basePath: string, ...segments: string[]): string {
+  return resolvePathApi(basePath).join(basePath, ...segments);
+}
+
 export function buildSlotPaths(poolConfig: PoolConfig, slotId: number): PoolSlotPaths {
   const slotText = String(slotId);
   const profileDir = normalizePath(poolConfig.profileDirTemplate).replaceAll('{id}', slotText);
@@ -42,21 +50,22 @@ export function buildSlotPaths(poolConfig: PoolConfig, slotId: number): PoolSlot
   return {
     profileDir,
     outputDir,
-    logFile: path.join(logsDir, `slot-${slotText}.log`),
-    leaseFile: path.join(leaseDir, `slot-${slotText}.json`),
-    lockDir: path.join(leaseDir, `slot-${slotText}.lock`)
+    logFile: joinPreservingPathStyle(logsDir, `slot-${slotText}.log`),
+    leaseFile: joinPreservingPathStyle(leaseDir, `slot-${slotText}.json`),
+    lockDir: joinPreservingPathStyle(leaseDir, `slot-${slotText}.lock`)
   };
 }
 
 function parsePoolConfig(rawPool: Partial<PoolConfig> | undefined): PoolConfig {
+  const leaseDir = normalizePath(assertString(rawPool?.leaseDir, 'pool.leaseDir'));
   return {
     size: assertNumber(rawPool?.size, 'pool.size'),
     sourceProfileDir:
       rawPool?.sourceProfileDir === undefined ? undefined : normalizePath(assertString(rawPool.sourceProfileDir, 'pool.sourceProfileDir')),
     profileDirTemplate: normalizePath(assertString(rawPool?.profileDirTemplate, 'pool.profileDirTemplate')),
     outputDirTemplate: normalizePath(assertString(rawPool?.outputDirTemplate, 'pool.outputDirTemplate')),
-    leaseDir: normalizePath(assertString(rawPool?.leaseDir, 'pool.leaseDir')),
-    logsDir: normalizePath(assertString(rawPool?.logsDir ?? path.join(assertString(rawPool?.leaseDir, 'pool.leaseDir'), '..', 'logs'), 'pool.logsDir')),
+    leaseDir,
+    logsDir: normalizePath(assertString(rawPool?.logsDir ?? joinPreservingPathStyle(leaseDir, '..', 'logs'), 'pool.logsDir')),
     heartbeatSeconds: rawPool?.heartbeatSeconds === undefined ? 10 : assertNumber(rawPool.heartbeatSeconds, 'pool.heartbeatSeconds'),
     staleLeaseSeconds: rawPool?.staleLeaseSeconds === undefined ? 60 : assertNumber(rawPool.staleLeaseSeconds, 'pool.staleLeaseSeconds'),
     sessionKeyEnv: assertString(rawPool?.sessionKeyEnv ?? 'CODEX_THREAD_ID', 'pool.sessionKeyEnv')

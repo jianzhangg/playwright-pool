@@ -15,6 +15,7 @@ import {
 import { parseCliInput } from './cli.js';
 import { loadPoolConfig } from './config.js';
 import { isExecutedAsCli } from './execution-mode.js';
+import { createConsoleInitWizardIO, runInitWizard, type InitWizardIO } from './init-wizard.js';
 import { initializePlaywrightPool } from './init.js';
 import { LeaseManager } from './lease-manager.js';
 import { buildSlotPlaywrightConfig, resolveDefaultConfigPath } from './playwright-config.js';
@@ -35,25 +36,63 @@ const POOL_STATUS_TOOL: Tool = {
   }
 };
 
-async function main(): Promise<void> {
-  const { command, args } = parseCliInput(process.argv.slice(2));
-  if (command === 'init') {
-    const result = await initializePlaywrightPool({
-      configPath: args.config,
+type InitCommandDependencies = {
+  createWizardIO?: () => InitWizardIO & { close?: () => void };
+  runInitWizard?: typeof runInitWizard;
+  initializePlaywrightPool?: typeof initializePlaywrightPool;
+  writeOutput?: (message: string) => void;
+};
+
+export async function runInitCommand(
+  args: Record<string, string>,
+  dependencies: InitCommandDependencies = {}
+): Promise<void> {
+  const createWizardIO = dependencies.createWizardIO ?? (() => createConsoleInitWizardIO());
+  const runWizard = dependencies.runInitWizard ?? runInitWizard;
+  const initializePool = dependencies.initializePlaywrightPool ?? initializePlaywrightPool;
+  const writeOutput = dependencies.writeOutput ?? ((message: string) => {
+    process.stdout.write(message);
+  });
+  const io = createWizardIO();
+
+  try {
+    const wizardResult = await runWizard(io, {
+      initialConfigPath: args.config
+    });
+    if (!wizardResult) {
+      return;
+    }
+
+    const result = await initializePool({
+      configPath: wizardResult.configPath,
       force: args.force === 'true',
-      size: args.size ? Number(args.size) : undefined
+      size: wizardResult.size,
+      browser: wizardResult.browser,
+      browserChannel: wizardResult.browserChannel,
+      sourceProfileDir: wizardResult.sourceProfileDir,
+      browserExecutablePath: wizardResult.browserExecutablePath
     });
 
-    process.stdout.write(
+    writeOutput(
       [
         'playwright_pool 初始化完成',
+        `浏览器: ${describeBrowser(result.browser)}`,
         `配置文件: ${result.configPath}`,
         `运行目录: ${result.runtimeRoot}`,
-        `Chrome 可执行文件: ${result.chromeExecutablePath}`,
+        `浏览器可执行文件: ${result.browserExecutablePath ?? '未探测到'}`,
         `源 profile: ${result.sourceProfileDir}`,
         `slot 数量: ${result.size}`
       ].join('\n') + '\n'
     );
+  } finally {
+    io.close?.();
+  }
+}
+
+async function main(): Promise<void> {
+  const { command, args } = parseCliInput(process.argv.slice(2));
+  if (command === 'init') {
+    await runInitCommand(args);
     return;
   }
 
@@ -177,6 +216,10 @@ async function main(): Promise<void> {
   });
 
   await server.connect(transport);
+}
+
+function describeBrowser(browser: 'chrome' | 'edge'): string {
+  return browser === 'edge' ? 'Microsoft Edge' : 'Google Chrome';
 }
 
 async function listClientRoots(server: Server): Promise<Root[]> {

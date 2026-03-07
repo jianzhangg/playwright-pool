@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { renderDefaultConfig } from '../src/init.js';
+import { initializePlaywrightPool, renderDefaultConfig } from '../src/init.js';
 import {
   detectBrowserExecutablePath,
   detectBrowserProfileDir,
@@ -73,6 +73,84 @@ describe('playwright_pool init defaults', () => {
     expect(rendered).toContain(`profileDirTemplate = "${path.join(runtimeRoot, 'profiles/{id}')}"`);
     expect(rendered).toContain('channel = "chrome"');
     expect(rendered).toContain('headless = false');
+  });
+
+  it('生成默认配置时支持 Edge channel', () => {
+    const runtimeRoot = path.join('C:/Users/alice', 'Documents', 'playwright-pool');
+    const sourceProfileDir = path.join('C:/Users/alice', 'AppData/Local/Microsoft/Edge/User Data');
+    const rendered = renderDefaultConfig({
+      runtimeRoot,
+      sourceProfileDir,
+      size: 3,
+      browserChannel: 'msedge'
+    });
+
+    expect(rendered).toContain('size = 3');
+    expect(rendered).toContain(`sourceProfileDir = "${sourceProfileDir}"`);
+    expect(rendered).toContain('channel = "msedge"');
+  });
+
+  it('initializePlaywrightPool 会消费交互确认后的浏览器与 profile 参数', async () => {
+    const configPath = path.resolve('C:/temp/playwright-pool/config.toml');
+    const runtimeRoot = path.dirname(configPath);
+    const sourceProfileDir = 'D:/profiles/edge';
+    const resolvedSourceProfileDir = path.resolve(sourceProfileDir);
+    const browserExecutablePath = 'C:/Program Files/Microsoft/Edge/Application/msedge.exe';
+    const mkdir = vi.fn().mockResolvedValue(undefined);
+    const writeFile = vi.fn().mockResolvedValue(undefined);
+    const loadPoolConfig = vi.fn().mockResolvedValue({
+      pool: {
+        size: 2
+      },
+      playwright: {}
+    });
+    const prepareProfiles = vi.fn().mockResolvedValue(undefined);
+
+    const result = await initializePlaywrightPool(
+      {
+        configPath,
+        force: true,
+        size: 2,
+        browser: 'edge',
+        browserChannel: 'msedge',
+        sourceProfileDir,
+        browserExecutablePath
+      },
+      {
+        mkdir,
+        writeFile,
+        loadPoolConfig,
+        prepareProfiles
+      }
+    );
+
+    expect(mkdir).toHaveBeenCalledWith(runtimeRoot, { recursive: true });
+    expect(writeFile).toHaveBeenCalledTimes(1);
+    expect(writeFile.mock.calls[0]?.[0]).toBe(configPath);
+    expect(writeFile.mock.calls[0]?.[1]).toContain('channel = "msedge"');
+    expect(writeFile.mock.calls[0]?.[1]).toContain(`sourceProfileDir = "${resolvedSourceProfileDir}"`);
+    expect(writeFile.mock.calls[0]?.[2]).toEqual({
+      encoding: 'utf8',
+      flag: 'w'
+    });
+    expect(loadPoolConfig).toHaveBeenCalledWith(configPath);
+    expect(prepareProfiles).toHaveBeenCalledWith(
+      {
+        pool: {
+          size: 2
+        },
+        playwright: {}
+      },
+      resolvedSourceProfileDir
+    );
+    expect(result).toEqual({
+      configPath,
+      runtimeRoot,
+      sourceProfileDir: resolvedSourceProfileDir,
+      browserExecutablePath,
+      browser: 'edge',
+      size: 2
+    });
   });
 
   it('导入 init 模块时不应触发 prepare-profiles CLI 入口', () => {

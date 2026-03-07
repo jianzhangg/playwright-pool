@@ -13,13 +13,13 @@
 
 - 你希望多个对话共享一组浏览器 profile，但互不抢占
 - 你希望 MCP 客户端里只接一个 Playwright 入口
-- 你希望默认用系统 Chrome，并复用本机登录态
+- 你希望默认用系统 Chrome 或 Microsoft Edge，并复用本机登录态
 
 ## 安装前提
 
 - Node.js `>=18`
-- 本机已安装 Google Chrome
-- 首次初始化时，Chrome 默认 profile 对应的浏览器实例必须关闭
+- 本机已安装 Google Chrome 或 Microsoft Edge
+- 首次初始化时，所选浏览器对应的默认 profile 实例必须关闭
 
 ## 快速开始
 
@@ -29,17 +29,18 @@
 npx @jianzhangg/playwright-pool@latest init
 ```
 
-初始化会自动：
+初始化会进入交互式向导，默认会：
 
-- 检测本机 Google Chrome
-- 检测默认 Chrome profile 源目录
-- 在 `~/Documents/playwright-pool` 下生成默认配置与运行目录
+- 让你选择 `Google Chrome` 或 `Microsoft Edge`
+- 探测所选浏览器的默认 profile 源目录，并允许你改成手动输入路径
+- 默认把运行目录放到当前系统 `Documents/playwright-pool`
+- 在 Windows 上，如果你重定位过“文档”，这里会自动跟随实际的 Documents 位置
 - 默认准备 10 个 slot 的 profile 副本
 
 默认配置文件位置：
 
 ```text
-~/Documents/playwright-pool/config.toml
+<Documents>/playwright-pool/config.toml
 ```
 
 ### 2. 启动 MCP
@@ -51,7 +52,7 @@ npx @jianzhangg/playwright-pool@latest
 默认会读取：
 
 ```text
-~/Documents/playwright-pool/config.toml
+<Documents>/playwright-pool/config.toml
 ```
 
 也支持显式指定：
@@ -151,7 +152,7 @@ enabled = true
 默认运行目录：
 
 ```text
-~/Documents/playwright-pool
+<Documents>/playwright-pool
 ```
 
 其中包含：
@@ -181,7 +182,7 @@ enabled = true
 
 - 主进程会停止续租并释放自己持有的 lease
 - 对应 `slot-server` 会校验 lease 归属后删除 lease
-- 只清理仍归当前 slot 所有者持有的 Chrome 进程，避免误杀新会话
+- 只清理仍归当前 slot 所有者持有的浏览器进程，避免误杀新会话
 
 这套逻辑主要用于处理：
 
@@ -198,13 +199,13 @@ enabled = true
 
 ## 排障入口
 
-如果怀疑 slot 或 Chrome 没有被及时清理，可以优先看这几个位置：
+如果怀疑 slot 或浏览器进程没有被及时清理，可以优先看这几个位置：
 
-- `~/Documents/playwright-pool/leases/slot-*.json`
+- `<Documents>/playwright-pool/leases/slot-*.json`
   - 看 `ownerPid` 和 `lastHeartbeatAt` 是否还在刷新
-- `~/Documents/playwright-pool/logs/slot-*.log`
+- `<Documents>/playwright-pool/logs/slot-*.log`
   - 看 `slot-server` 的异常、清理和退出日志
-- `~/Documents/playwright-pool/output/{id}/console-*.log`
+- `<Documents>/playwright-pool/output/{id}/console-*.log`
   - 看页面层面的 console 输出
 
 如果 `leases` 还在持续刷新，通常说明不是 `slot-server` 清理失败，而是主 `playwright_pool` 进程本身还活着。
@@ -214,7 +215,7 @@ enabled = true
 ### 需要
 
 - Node.js
-- Google Chrome
+- Google Chrome 或 Microsoft Edge
 
 ### 不需要单独手动安装
 
@@ -254,4 +255,4 @@ npm run init:local
 
 - 会话绑定优先依赖 `CODEX_THREAD_ID`，缺失时回退到当前 MCP 服务进程实例标识
 - `browser_close` 只关闭浏览器，不释放 slot；slot 在进程退出或心跳超时后释放
-- 初始化默认假设使用系统 Chrome，而不是 Playwright 自带的 Chromium 浏览器二进制
+- 初始化当前只支持系统已安装的 Chrome / Edge，不会自动切到 Playwright 自带的 Chromium 二进制
