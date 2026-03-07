@@ -82,6 +82,7 @@ type LauncherWatcherOptions = {
   intervalMs?: number;
   loadLineage?: (pid: number) => Promise<ProcessInfo[]>;
   launcherMatcher?: (processInfo: ProcessInfo) => boolean;
+  platform?: NodeJS.Platform;
   setIntervalFn?: typeof setInterval;
   clearIntervalFn?: typeof clearInterval;
 };
@@ -110,9 +111,14 @@ export function startDetachedLauncherWatcher(options: LauncherWatcherOptions): (
     intervalMs = 1000,
     loadLineage = loadProcessLineage,
     launcherMatcher = defaultLauncherMatcher,
+    platform = process.platform,
     setIntervalFn = setInterval,
     clearIntervalFn = clearInterval
   } = options;
+
+  if (platform === 'win32') {
+    return () => undefined;
+  }
 
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;

@@ -125,6 +125,7 @@ describe('slot guardian', () => {
         { pid: 2001, ppid: 1, command: 'npx -y @jianzhangg/playwright-pool' }
       ]),
       launcherMatcher: () => true,
+      platform: 'darwin',
       setIntervalFn: ((callback: () => void) => {
         tick = callback;
         return {
@@ -143,5 +144,26 @@ describe('slot guardian', () => {
 
     expect(onDetached).toHaveBeenCalledTimes(1);
     expect(cleared).toBe(1);
+  });
+
+  it('在 win32 上直接禁用启动链 watcher', () => {
+    const onDetached = vi.fn();
+    const loadLineage = vi.fn();
+    const setIntervalFn = vi.fn();
+
+    const stop = startDetachedLauncherWatcher({
+      currentPid: 2003,
+      intervalMs: 1000,
+      onDetached,
+      loadLineage,
+      platform: 'win32',
+      setIntervalFn: setIntervalFn as unknown as typeof setInterval
+    } as Parameters<typeof startDetachedLauncherWatcher>[0]);
+
+    stop();
+
+    expect(setIntervalFn).not.toHaveBeenCalled();
+    expect(loadLineage).not.toHaveBeenCalled();
+    expect(onDetached).not.toHaveBeenCalled();
   });
 });
