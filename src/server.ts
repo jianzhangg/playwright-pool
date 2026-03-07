@@ -91,7 +91,7 @@ async function main(): Promise<void> {
   const server = new Server(
     {
       name: 'playwright_pool',
-      version: '0.1.5'
+      version: '0.1.6'
     },
     {
       capabilities: {
