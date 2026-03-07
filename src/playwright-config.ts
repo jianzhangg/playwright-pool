@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { buildSlotPaths } from './config.js';
-import { resolveDefaultRuntimeRoot } from './profile-source.js';
+import { resolveDefaultRuntimeRoot, type ResolveRuntimeRootOptions } from './profile-source.js';
 import type { PlaywrightPoolConfig } from './types.js';
 
 function ensureObject<T extends object>(value: unknown): T {
@@ -48,6 +48,17 @@ export function applyDefaultChromiumSandbox(
   return config;
 }
 
-export function resolveDefaultConfigPath(homeDir?: string): string {
-  return path.resolve(resolveDefaultRuntimeRoot(homeDir), 'config.toml');
+function resolveRuntimeOptions(homeDirOrOptions?: string | ResolveRuntimeRootOptions): ResolveRuntimeRootOptions {
+  if (typeof homeDirOrOptions === 'string' || homeDirOrOptions === undefined) {
+    return { homeDir: homeDirOrOptions };
+  }
+
+  return homeDirOrOptions;
+}
+
+export function resolveDefaultConfigPath(homeDirOrOptions?: string | ResolveRuntimeRootOptions): string {
+  const options = resolveRuntimeOptions(homeDirOrOptions);
+  const platform = options.platform ?? process.platform;
+  const pathApi = platform === 'win32' ? path.win32 : path.posix;
+  return pathApi.resolve(resolveDefaultRuntimeRoot(options), 'config.toml');
 }
