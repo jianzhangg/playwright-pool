@@ -1,3 +1,5 @@
+import type { Root } from '@modelcontextprotocol/sdk/types.js';
+
 import type { LeaseRecord, ToolCallResult } from './types.js';
 
 type LeaseManagerLike = {
@@ -8,7 +10,7 @@ type LeaseManagerLike = {
 };
 
 type SlotRuntimeLike = {
-  callTool(slotId: number, toolName: string, args: Record<string, unknown>): Promise<ToolCallResult>;
+  callTool(slotId: number, toolName: string, args: Record<string, unknown>, roots: Root[]): Promise<ToolCallResult>;
   listStatuses?(): Array<{
     slotId: number;
     started: boolean;
@@ -35,7 +37,7 @@ export class PoolService {
 
   constructor(private readonly options: PoolServiceOptions) {}
 
-  async callTool(request: ToolRequest, env: NodeJS.ProcessEnv): Promise<ToolCallResult> {
+  async callTool(request: ToolRequest, env: NodeJS.ProcessEnv, roots: Root[] = []): Promise<ToolCallResult> {
     if (request.name === 'pool_status') {
       return this.buildStatusResult();
     }
@@ -48,7 +50,7 @@ export class PoolService {
     const lease = await this.options.leaseManager.acquire(threadId, process.pid);
     this.ensureHeartbeat(lease.slotId);
     await this.options.leaseManager.heartbeat(lease.slotId);
-    return this.options.slotRuntime.callTool(lease.slotId, request.name, request.arguments ?? {});
+    return this.options.slotRuntime.callTool(lease.slotId, request.name, request.arguments ?? {}, roots);
   }
 
   async shutdown(): Promise<void> {

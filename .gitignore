@@ -6,3 +6,4 @@ playwright-pool.local.toml
 task_plan.md
 findings.md
 progress.md
+.tmp/

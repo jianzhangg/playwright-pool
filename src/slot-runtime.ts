@@ -5,18 +5,22 @@ import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { CompatibilityCallToolResultSchema, type Tool } from '@modelcontextprotocol/sdk/types.js';
+import { CompatibilityCallToolResultSchema, ListRootsRequestSchema, type Root, type Tool } from '@modelcontextprotocol/sdk/types.js';
 
 import { extractTabIndices } from './browser-tabs.js';
 import { buildSlotPaths } from './config.js';
+import { buildForwardedRootsSignature, ForwardedRootsState } from './forwarded-roots.js';
 import { killProfileProcesses } from './profile-process.js';
 import type { PlaywrightPoolConfig, ToolCallResult } from './types.js';
 
 type SlotHandle = {
   client: Client;
+  fallbackRootPath: string;
+  forwardedRoots: ForwardedRootsState;
   logStream: WriteStream;
   pid: number | null;
   profileDir: string;
+  rootsSignature: string;
   transport: StdioClientTransport;
 };
 
@@ -45,7 +49,7 @@ export class SlotRuntime {
   ) {}
 
   async discoverTools(): Promise<Tool[]> {
-    const temporaryHandle = await this.startClient(1);
+    const temporaryHandle = await this.startClient(1, []);
     try {
       const result = await temporaryHandle.client.listTools();
       return result.tools;
@@ -54,8 +58,13 @@ export class SlotRuntime {
     }
   }
 
-  async callTool(slotId: number, toolName: string, args: Record<string, unknown>): Promise<ToolCallResult> {
-    const handle = await this.ensureClient(slotId);
+  async callTool(
+    slotId: number,
+    toolName: string,
+    args: Record<string, unknown>,
+    roots: Root[] = []
+  ): Promise<ToolCallResult> {
+    const handle = await this.ensureClient(slotId, roots);
     const result = await handle.client.callTool(
       {
         name: toolName,
@@ -88,18 +97,24 @@ export class SlotRuntime {
     await Promise.all(handles.map((handle) => this.stopClient(handle)));
   }
 
-  private async ensureClient(slotId: number): Promise<SlotHandle> {
+  private async ensureClient(slotId: number, roots: Root[]): Promise<SlotHandle> {
     const existingHandle = this.clients.get(slotId);
     if (existingHandle) {
-      return existingHandle;
+      const nextRootsSignature = buildForwardedRootsSignature(roots, existingHandle.fallbackRootPath);
+      if (nextRootsSignature === existingHandle.rootsSignature) {
+        return existingHandle;
+      }
+
+      this.clients.delete(slotId);
+      await this.stopClient(existingHandle);
     }
 
-    const handle = await this.startClient(slotId);
+    const handle = await this.startClient(slotId, roots);
     this.clients.set(slotId, handle);
     return handle;
   }
 
-  private async startClient(slotId: number): Promise<SlotHandle> {
+  private async startClient(slotId: number, roots: Root[]): Promise<SlotHandle> {
     const slotPaths = buildSlotPaths(this.config.pool, slotId);
     await Promise.all([
       mkdir(slotPaths.profileDir, { recursive: true }),
@@ -108,6 +123,7 @@ export class SlotRuntime {
     ]);
 
     const launchTarget = await this.resolveLaunchTarget(slotId);
+    const forwardedRoots = new ForwardedRootsState(launchTarget.cwd, roots);
     const transport = new StdioClientTransport({
       command: launchTarget.command,
       args: launchTarget.args,
@@ -127,17 +143,27 @@ export class SlotRuntime {
         version: '0.1.0'
       },
       {
-        capabilities: {}
+        capabilities: {
+          roots: {}
+        }
       }
     );
+    client.setRequestHandler(ListRootsRequestSchema, async () => {
+      return {
+        roots: forwardedRoots.list()
+      };
+    });
 
     await client.connect(transport);
 
     return {
       client,
+      fallbackRootPath: launchTarget.cwd,
+      forwardedRoots,
       logStream,
       pid: transport.pid,
       profileDir: slotPaths.profileDir,
+      rootsSignature: forwardedRoots.signature(),
       transport
     };
   }

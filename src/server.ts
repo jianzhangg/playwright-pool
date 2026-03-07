@@ -8,6 +8,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  type Root,
   type Tool
 } from '@modelcontextprotocol/sdk/types.js';
 
@@ -82,7 +83,7 @@ async function main(): Promise<void> {
     heartbeatSeconds: config.pool.heartbeatSeconds,
     leaseManager,
     slotRuntime: {
-      callTool: (slotId, toolName, toolArgs) => slotRuntime.callTool(slotId, toolName, toolArgs),
+      callTool: (slotId, toolName, toolArgs, roots) => slotRuntime.callTool(slotId, toolName, toolArgs, roots),
       listStatuses: () => slotRuntime.listStatuses()
     }
   });
@@ -106,12 +107,14 @@ async function main(): Promise<void> {
   });
 
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const roots = await listClientRoots(server);
     const result = await poolService.callTool(
       {
         name: request.params.name,
         arguments: (request.params.arguments ?? {}) as Record<string, unknown>
       },
-      process.env
+      process.env,
+      roots
     );
     return result as ToolCallResult;
   });
@@ -174,6 +177,19 @@ async function main(): Promise<void> {
   });
 
   await server.connect(transport);
+}
+
+async function listClientRoots(server: Server): Promise<Root[]> {
+  if (!server.getClientCapabilities()?.roots) {
+    return [];
+  }
+
+  try {
+    const result = await server.listRoots();
+    return result.roots;
+  } catch {
+    return [];
+  }
 }
 
 if (isExecutedAsCli(import.meta.url)) {

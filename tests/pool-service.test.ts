@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import type { Root } from '@modelcontextprotocol/sdk/types.js';
 import type { LeaseRecord } from '../src/types.js';
 import { PoolService } from '../src/pool-service.js';
 
@@ -43,8 +44,62 @@ describe('PoolService', () => {
     );
 
     expect(acquire).toHaveBeenCalledWith('playwright-pool:server-1', process.pid);
-    expect(callTool).toHaveBeenCalledWith(1, 'browser_navigate', { url: 'https://example.com' });
+    expect(callTool).toHaveBeenCalledWith(1, 'browser_navigate', { url: 'https://example.com' }, []);
     expect(result.content[0]?.text).toBe('ok');
+  });
+
+  it('调用普通工具时会把客户端 roots 一并转发给 slot runtime', async () => {
+    const roots: Root[] = [
+      {
+        uri: 'file:///C:/code/playwright-pool',
+        name: 'playwright-pool'
+      }
+    ];
+    const callTool = vi.fn().mockResolvedValue({
+      content: [{ type: 'text', text: 'ok' }]
+    });
+    const service = new PoolService({
+      sessionKeyEnv: 'CODEX_THREAD_ID',
+      sessionFallbackKey: 'playwright-pool:server-1',
+      leaseManager: {
+        acquire: vi.fn().mockResolvedValue({
+          slotId: 1,
+          threadId: 'thread-a',
+          ownerPid: process.pid,
+          acquiredAt: '2026-03-06T00:00:00.000Z',
+          lastHeartbeatAt: '2026-03-06T00:00:00.000Z',
+          configPath: '/tmp/playwright-pool.local.toml'
+        }),
+        heartbeat: vi.fn(),
+        releaseOwnedByPid: vi.fn(),
+        list: vi.fn().mockResolvedValue([])
+      },
+      slotRuntime: {
+        callTool
+      }
+    });
+
+    await service.callTool(
+      {
+        name: 'browser_file_upload',
+        arguments: {
+          paths: ['C:\\code\\playwright-pool\\README.md']
+        }
+      },
+      {
+        CODEX_THREAD_ID: 'thread-a'
+      },
+      roots
+    );
+
+    expect(callTool).toHaveBeenCalledWith(
+      1,
+      'browser_file_upload',
+      {
+        paths: ['C:\\code\\playwright-pool\\README.md']
+      },
+      roots
+    );
   });
 
   it('pool_status 不需要会话绑定，直接返回当前租约状态', async () => {
@@ -125,7 +180,7 @@ describe('PoolService', () => {
     );
 
     expect(acquire).toHaveBeenCalledWith('thread-a', process.pid);
-    expect(callTool).toHaveBeenCalledWith(2, 'browser_snapshot', {});
+    expect(callTool).toHaveBeenCalledWith(2, 'browser_snapshot', {}, []);
     expect(result.content[0]?.text).toBe('ok');
   });
 
