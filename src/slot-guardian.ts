@@ -1,3 +1,5 @@
+import process from 'node:process';
+
 type CleanupFunction = () => Promise<void> | void;
 
 export type ProcessInfo = {
@@ -89,10 +91,27 @@ type LauncherWatcherOptions = {
 
 export function isDetachedLauncherChain(
   lineage: ProcessInfo[],
-  launcherMatcher: (processInfo: ProcessInfo) => boolean = defaultLauncherMatcher
+  launcherMatcher: (processInfo: ProcessInfo) => boolean = defaultLauncherMatcher,
+  platform: NodeJS.Platform = process.platform
 ): boolean {
   if (lineage.length === 0) {
     return false;
+  }
+
+  if (platform === 'win32') {
+    const ancestors = lineage.slice(1);
+    let sawLauncher = false;
+
+    for (const processInfo of ancestors) {
+      if (launcherMatcher(processInfo)) {
+        sawLauncher = true;
+        continue;
+      }
+
+      return false;
+    }
+
+    return sawLauncher;
   }
 
   return lineage.some((processInfo, index) => {
@@ -109,16 +128,12 @@ export function startDetachedLauncherWatcher(options: LauncherWatcherOptions): (
     currentPid,
     onDetached,
     intervalMs = 1000,
-    loadLineage = loadProcessLineage,
     launcherMatcher = defaultLauncherMatcher,
     platform = process.platform,
     setIntervalFn = setInterval,
     clearIntervalFn = clearInterval
   } = options;
-
-  if (platform === 'win32') {
-    return () => undefined;
-  }
+  const loadLineage = options.loadLineage ?? ((pid: number) => loadProcessLineage(pid, platform));
 
   let stopped = false;
   let timer: NodeJS.Timeout | null = null;
@@ -143,7 +158,7 @@ export function startDetachedLauncherWatcher(options: LauncherWatcherOptions): (
     checking = true;
     try {
       const lineage = await loadLineage(currentPid);
-      if (!isDetachedLauncherChain(lineage, launcherMatcher)) {
+      if (!isDetachedLauncherChain(lineage, launcherMatcher, platform)) {
         return;
       }
 
@@ -162,14 +177,17 @@ export function startDetachedLauncherWatcher(options: LauncherWatcherOptions): (
   return stop;
 }
 
-export async function loadProcessLineage(pid: number): Promise<ProcessInfo[]> {
+export async function loadProcessLineage(
+  pid: number,
+  platform: NodeJS.Platform = process.platform
+): Promise<ProcessInfo[]> {
   const lineage: ProcessInfo[] = [];
   const visited = new Set<number>();
   let currentPid = pid;
 
   while (Number.isInteger(currentPid) && currentPid > 1 && !visited.has(currentPid)) {
     visited.add(currentPid);
-    const processInfo = await readProcessInfo(currentPid);
+    const processInfo = await readProcessInfo(currentPid, platform);
     if (!processInfo) {
       break;
     }
@@ -199,10 +217,46 @@ export function parsePsOutput(output: string): ProcessInfo | null {
   };
 }
 
-async function readProcessInfo(pid: number): Promise<ProcessInfo | null> {
+function parseWindowsProcessOutput(output: string): ProcessInfo | null {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const parsed = JSON.parse(trimmed) as {
+    ProcessId?: number;
+    ParentProcessId?: number;
+    CommandLine?: string | null;
+  };
+
+  if (!Number.isInteger(parsed.ProcessId) || !Number.isInteger(parsed.ParentProcessId)) {
+    return null;
+  }
+
+  return {
+    pid: Number(parsed.ProcessId),
+    ppid: Number(parsed.ParentProcessId),
+    command: parsed.CommandLine ?? ''
+  };
+}
+
+async function readProcessInfo(
+  pid: number,
+  platform: NodeJS.Platform = process.platform
+): Promise<ProcessInfo | null> {
   const { execFile } = await import('node:child_process');
   const { promisify } = await import('node:util');
   const execFileAsync = promisify(execFile);
+
+  if (platform === 'win32') {
+    const script = [
+      `$process = Get-CimInstance Win32_Process -Filter \"ProcessId = ${pid}\" -ErrorAction SilentlyContinue`,
+      'if ($null -eq $process) { return }',
+      '$process | Select-Object ProcessId, ParentProcessId, CommandLine | ConvertTo-Json -Compress'
+    ].join('; ');
+    const { stdout } = await execFileAsync('powershell.exe', ['-NoProfile', '-Command', script]);
+    return parseWindowsProcessOutput(stdout);
+  }
 
   try {
     const { stdout } = await execFileAsync('ps', ['-o', 'pid=,ppid=,command=', '-p', String(pid)]);
@@ -219,9 +273,12 @@ async function readProcessInfo(pid: number): Promise<ProcessInfo | null> {
 
 function defaultLauncherMatcher(processInfo: ProcessInfo): boolean {
   return (
-    /\bnpx\b/.test(processInfo.command) ||
-    /\bnpm exec\b/.test(processInfo.command) ||
-    /\bvolta(?:-shim)?\b/.test(processInfo.command)
+    /\bnpx(?:\.exe)?\b/i.test(processInfo.command) ||
+    /\bnpx-cli\.js\b/i.test(processInfo.command) ||
+    /\bnpm exec\b/i.test(processInfo.command) ||
+    /\bnpm-cli\.js\b/i.test(processInfo.command) ||
+    /\bvolta(?:-shim)?\b/i.test(processInfo.command) ||
+    /\bcmd(?:\.exe)?\b.*\b(?:npx|playwright-pool)\b/i.test(processInfo.command)
   );
 }
 

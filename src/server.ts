@@ -19,7 +19,9 @@ import { createConsoleInitWizardIO, runInitWizard, type InitWizardIO } from './i
 import { initializePlaywrightPool } from './init.js';
 import { LeaseManager } from './lease-manager.js';
 import { buildSlotPlaywrightConfig, resolveDefaultConfigPath } from './playwright-config.js';
+import { createFatalProcessHandler, createSingleExitHandler } from './process-shutdown.js';
 import { PoolService } from './pool-service.js';
+import { safeStderrWrite } from './safe-stderr.js';
 import { createServerLogger } from './server-logger.js';
 import { createCleanupOnce, startDetachedLauncherWatcher, startParentProcessWatcher } from './slot-guardian.js';
 import { SlotRuntime } from './slot-runtime.js';
@@ -115,7 +117,7 @@ async function main(): Promise<void> {
   buildSlotPlaywrightConfig(config, 1);
 
   logger.info('server_start', {
-    version: '0.1.8',
+    version: '0.1.9',
     configPath,
     heartbeatSeconds: config.pool.heartbeatSeconds,
     poolSize: config.pool.size,
@@ -142,7 +144,7 @@ async function main(): Promise<void> {
   const server = new Server(
     {
       name: 'playwright_pool',
-      version: '0.1.8'
+      version: '0.1.9'
     },
     {
       capabilities: {
@@ -189,15 +191,30 @@ async function main(): Promise<void> {
     await logger.close().catch(() => undefined);
   });
 
-  const shutdownAndExit = (exitCode: number, reason: string) => {
+  const requestShutdownAndExit = createSingleExitHandler((exitCode: number, reason: string) => {
     shutdownReason = reason;
     logger.info('server_shutdown_requested', {
       exitCode,
       reason
     });
-    process.stderr.write(`[playwright_pool] ${reason}\n`);
+    safeStderrWrite(`[playwright_pool] ${reason}\n`);
     void shutdown().finally(() => process.exit(exitCode));
-  };
+  });
+
+  const handleUncaughtException = createFatalProcessHandler({
+    reason: '发生 uncaughtException，准备回收所有 slot',
+    requestExit: requestShutdownAndExit,
+    writeDiagnostic: (message) => {
+      safeStderrWrite(message);
+    }
+  });
+  const handleUnhandledRejection = createFatalProcessHandler({
+    reason: '发生 unhandledRejection，准备回收所有 slot',
+    requestExit: requestShutdownAndExit,
+    writeDiagnostic: (message) => {
+      safeStderrWrite(message);
+    }
+  });
 
   transport.onclose = () => {
     if (shutdownReason === 'unknown') {
@@ -207,52 +224,44 @@ async function main(): Promise<void> {
     void shutdown();
   };
   process.stdin.on('end', () => {
-    shutdownAndExit(0, 'stdin end，准备回收所有 slot');
+    requestShutdownAndExit(0, 'stdin end，准备回收所有 slot');
   });
   process.stdin.on('close', () => {
-    shutdownAndExit(0, 'stdin close，准备回收所有 slot');
+    requestShutdownAndExit(0, 'stdin close，准备回收所有 slot');
   });
   process.on('SIGINT', () => {
-    shutdownAndExit(0, '收到 SIGINT，准备回收所有 slot');
+    requestShutdownAndExit(0, '收到 SIGINT，准备回收所有 slot');
   });
   process.on('SIGTERM', () => {
-    shutdownAndExit(0, '收到 SIGTERM，准备回收所有 slot');
+    requestShutdownAndExit(0, '收到 SIGTERM，准备回收所有 slot');
   });
   process.on('uncaughtException', (error) => {
     logger.error('uncaught_exception', {
-      error: error.stack ?? error.message
+      error: error instanceof Error ? error.stack ?? error.message : String(error)
     });
-    process.stderr.write(`${error.stack ?? error.message}\n`);
-    shutdownAndExit(1, '发生 uncaughtException，准备回收所有 slot');
+    handleUncaughtException(error);
   });
   process.on('unhandledRejection', (reason) => {
     logger.error('unhandled_rejection', {
       error: String(reason)
     });
-    process.stderr.write(`${String(reason)}\n`);
-    shutdownAndExit(1, '发生 unhandledRejection，准备回收所有 slot');
+    handleUnhandledRejection(reason);
   });
 
   stopWatchingParent = startParentProcessWatcher({
     parentPid: process.ppid,
-    onParentExit: async () => {
-      shutdownReason = 'direct_parent_exit';
+    onParentExit: () => {
       logger.info('direct_parent_exit', {
         parentPid: process.ppid
       });
-      process.stderr.write('[playwright_pool] 检测到直接父进程失联，准备回收所有 slot\n');
-      await shutdown();
-      process.exit(0);
+      requestShutdownAndExit(0, '检测到直接父进程失联，准备回收所有 slot');
     }
   });
   stopWatchingLauncher = startDetachedLauncherWatcher({
     currentPid: process.pid,
-    onDetached: async () => {
-      shutdownReason = 'detached_launcher_chain';
+    onDetached: () => {
       logger.info('launcher_chain_detached', {});
-      process.stderr.write('[playwright_pool] 检测到 npx/npm 启动链已脱离父进程，准备回收所有 slot\n');
-      await shutdown();
-      process.exit(0);
+      requestShutdownAndExit(0, '检测到 npx/npm 启动链已脱离父进程，准备回收所有 slot');
     }
   });
 
@@ -282,7 +291,8 @@ async function listClientRoots(server: Server): Promise<Root[]> {
 if (isExecutedAsCli(import.meta.url)) {
   void main().catch((error) => {
     const message = error instanceof Error ? error.stack ?? error.message : String(error);
-    process.stderr.write(`${message}\n`);
+    safeStderrWrite(`${message}\n`);
     process.exitCode = 1;
   });
 }
+
