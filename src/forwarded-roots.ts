@@ -11,12 +11,41 @@ function buildFallbackRoot(fallbackRootPath: string): Root {
   };
 }
 
-export function normalizeForwardedRoots(roots: Root[], fallbackRootPath: string): Root[] {
-  return roots.length > 0 ? roots : [buildFallbackRoot(fallbackRootPath)];
+function buildConfiguredRoot(rootPath: string): Root {
+  const normalizedPath = path.resolve(rootPath);
+  return {
+    uri: pathToFileURL(normalizedPath).href,
+    name: normalizedPath
+  };
 }
 
-export function buildForwardedRootsSignature(roots: Root[], fallbackRootPath: string): string {
-  const normalizedRoots = normalizeForwardedRoots(roots, fallbackRootPath);
+function mergeRoots(roots: Root[], extraAllowedRootPaths: string[]): Root[] {
+  const dedupedRoots = new Map<string, Root>();
+  for (const root of [...roots, ...extraAllowedRootPaths.map((rootPath) => buildConfiguredRoot(rootPath))]) {
+    const key = `${root.uri}::${root.name ?? ''}`;
+    if (!dedupedRoots.has(key)) {
+      dedupedRoots.set(key, root);
+    }
+  }
+
+  return Array.from(dedupedRoots.values());
+}
+
+export function normalizeForwardedRoots(
+  roots: Root[],
+  fallbackRootPath: string,
+  extraAllowedRootPaths: string[] = []
+): Root[] {
+  const mergedRoots = mergeRoots(roots, extraAllowedRootPaths);
+  return mergedRoots.length > 0 ? mergedRoots : [buildFallbackRoot(fallbackRootPath)];
+}
+
+export function buildForwardedRootsSignature(
+  roots: Root[],
+  fallbackRootPath: string,
+  extraAllowedRootPaths: string[] = []
+): string {
+  const normalizedRoots = normalizeForwardedRoots(roots, fallbackRootPath, extraAllowedRootPaths);
   return JSON.stringify(
     normalizedRoots.map((root) => ({
       uri: root.uri,
@@ -30,13 +59,14 @@ export class ForwardedRootsState {
 
   constructor(
     private readonly fallbackRootPath: string,
-    roots: Root[] = []
+    roots: Root[] = [],
+    private readonly extraAllowedRootPaths: string[] = []
   ) {
-    this.roots = normalizeForwardedRoots(roots, fallbackRootPath);
+    this.roots = normalizeForwardedRoots(roots, fallbackRootPath, extraAllowedRootPaths);
   }
 
   set(roots: Root[]): void {
-    this.roots = normalizeForwardedRoots(roots, this.fallbackRootPath);
+    this.roots = normalizeForwardedRoots(roots, this.fallbackRootPath, this.extraAllowedRootPaths);
   }
 
   list(): Root[] {
@@ -44,6 +74,6 @@ export class ForwardedRootsState {
   }
 
   signature(): string {
-    return buildForwardedRootsSignature(this.roots, this.fallbackRootPath);
+    return buildForwardedRootsSignature(this.roots, this.fallbackRootPath, this.extraAllowedRootPaths);
   }
 }

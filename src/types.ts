@@ -1,6 +1,7 @@
 export interface PoolConfig {
   size: number;
   sourceProfileDir?: string;
+  extraAllowedRoots?: string[];
   profileDirTemplate: string;
   outputDirTemplate: string;
   leaseDir: string;

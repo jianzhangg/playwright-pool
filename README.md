@@ -109,8 +109,22 @@ enabled = true
   - `heartbeatSeconds`
   - `staleLeaseSeconds`
   - `sessionKeyEnv`
+  - `extraAllowedRoots`（可选）
 - `[playwright]`
   - 下游 Playwright MCP 配置
+
+`extraAllowedRoots` 用于显式放行额外本地目录，典型场景是 `browser_file_upload` 需要上传工作区外文件。
+
+行为顺序如下：
+
+1. 优先使用 MCP 客户端传入的 `roots`
+2. 追加 `extraAllowedRoots`
+3. 如果两者都没有，再回退到当前默认 fallback
+
+这意味着：
+
+- 不配置 `extraAllowedRoots` 时，行为与旧版本保持一致
+- 只有确实需要上传工作区外文件时，才需要显式配置它
 
 如果没有显式设置 `playwright.browser.launchOptions.chromiumSandbox`，`playwright_pool` 会和官方 `@playwright/mcp` CLI 保持一致：
 

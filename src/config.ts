@@ -25,6 +25,14 @@ function assertNumber(value: unknown, fieldName: string): number {
   return value;
 }
 
+function assertStringArray(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`配置项 ${fieldName} 必须是字符串数组`);
+  }
+
+  return value.map((item, index) => assertString(item, `${fieldName}[${index}]`));
+}
+
 function normalizePath(rawPath: string): string {
   if (rawPath.startsWith('~/')) {
     return path.join(process.env.HOME ?? '', rawPath.slice(2));
@@ -62,6 +70,12 @@ function parsePoolConfig(rawPool: Partial<PoolConfig> | undefined): PoolConfig {
     size: assertNumber(rawPool?.size, 'pool.size'),
     sourceProfileDir:
       rawPool?.sourceProfileDir === undefined ? undefined : normalizePath(assertString(rawPool.sourceProfileDir, 'pool.sourceProfileDir')),
+    extraAllowedRoots:
+      rawPool?.extraAllowedRoots === undefined
+        ? undefined
+        : assertStringArray(rawPool.extraAllowedRoots, 'pool.extraAllowedRoots').map((rootPath) =>
+            path.resolve(normalizePath(rootPath))
+          ),
     profileDirTemplate: normalizePath(assertString(rawPool?.profileDirTemplate, 'pool.profileDirTemplate')),
     outputDirTemplate: normalizePath(assertString(rawPool?.outputDirTemplate, 'pool.outputDirTemplate')),
     leaseDir,

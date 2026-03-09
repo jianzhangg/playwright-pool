@@ -9,6 +9,7 @@ describe('loadPoolConfig', () => {
     expect(config.pool.size).toBe(3);
     expect(config.pool.sessionKeyEnv).toBe('CODEX_THREAD_ID');
     expect(config.pool.sourceProfileDir).toBe('/tmp/pw/source');
+    expect(config.pool.extraAllowedRoots).toEqual(['/tmp/pw/shared', '/tmp/pw/uploads']);
     expect(
       (config.playwright.browser as { launchOptions?: { channel?: string } } | undefined)?.launchOptions?.channel
     ).toBe('msedge');
@@ -19,6 +20,12 @@ describe('loadPoolConfig', () => {
       leaseFile: '/tmp/pw/leases/slot-2.json',
       lockDir: '/tmp/pw/leases/slot-2.lock'
     });
+  });
+
+  it('未配置 extraAllowedRoots 时保持 undefined', async () => {
+    const config = await loadPoolConfig(new URL('./fixtures/basic-config-no-extra.toml', import.meta.url));
+
+    expect(config.pool.extraAllowedRoots).toBeUndefined();
   });
 
   it('缺少必须的 pool 字段时抛出清晰错误', async () => {

@@ -108,7 +108,11 @@ export class SlotRuntime {
   private async ensureClient(slotId: number, roots: Root[]): Promise<SlotHandle> {
     const existingHandle = this.clients.get(slotId)
     if (existingHandle) {
-      const nextRootsSignature = buildForwardedRootsSignature(roots, existingHandle.fallbackRootPath)
+      const nextRootsSignature = buildForwardedRootsSignature(
+        roots,
+        existingHandle.fallbackRootPath,
+        this.config.pool.extraAllowedRoots ?? []
+      )
       if (nextRootsSignature === existingHandle.rootsSignature) {
         this.logger.info('slot_client_reuse', {
           slotId,
@@ -141,7 +145,7 @@ export class SlotRuntime {
     ])
 
     const launchTarget = await this.resolveLaunchTarget(slotId)
-    const forwardedRoots = new ForwardedRootsState(launchTarget.cwd, roots)
+    const forwardedRoots = new ForwardedRootsState(launchTarget.cwd, roots, this.config.pool.extraAllowedRoots ?? [])
     const transport = new StdioClientTransport({
       command: launchTarget.command,
       args: launchTarget.args,

@@ -8,6 +8,8 @@ logsDir = "/Users/your-name/Documents/playwright-pool/logs"
 heartbeatSeconds = 10
 staleLeaseSeconds = 120
 sessionKeyEnv = "CODEX_THREAD_ID"
+# 可选：额外允许访问的本地目录，适合上传工作区外文件；不配置则保持默认行为
+# extraAllowedRoots = ["/Users/your-name/Downloads"]
 
 [playwright.browser]
 browserName = "chromium"

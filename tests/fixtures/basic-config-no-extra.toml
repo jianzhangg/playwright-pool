@@ -8,7 +8,6 @@ logsDir = "/tmp/pw/logs"
 heartbeatSeconds = 5
 staleLeaseSeconds = 30
 sessionKeyEnv = "CODEX_THREAD_ID"
-extraAllowedRoots = ["/tmp/pw/shared", "/tmp/pw/uploads"]
 
 [playwright.browser]
 browserName = "chromium"

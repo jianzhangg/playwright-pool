@@ -37,13 +37,14 @@ const mockState = vi.hoisted(() => {
 
   class FakeClient {
     transport: FakeTransport | null = null;
+    listRootsHandler?: () => Promise<{ roots: unknown[] }>;
 
     constructor(..._args: unknown[]) {
       clients.push(this);
     }
 
-    setRequestHandler(): void {
-      return undefined;
+    setRequestHandler(_schema: unknown, handler: () => Promise<{ roots: unknown[] }>): void {
+      this.listRootsHandler = handler;
     }
 
     async connect(transport: FakeTransport): Promise<void> {
@@ -189,5 +190,78 @@ describe('SlotRuntime', () => {
     oldTransport?.onclose?.();
 
     expect(runtime.listStatuses()[0]).toMatchObject({ started: true, pid: 1001 });
+  });
+
+  it('客户端 roots 为空时会把配置里的 extraAllowedRoots 转发给 slot 子进程', async () => {
+    const runtime = new SlotRuntime(
+      {
+        pool: {
+          size: 1,
+          sourceProfileDir: path.join(rootDir, 'source'),
+          profileDirTemplate: path.join(rootDir, 'profiles/{id}'),
+          outputDirTemplate: path.join(rootDir, 'output/{id}'),
+          leaseDir: path.join(rootDir, 'leases'),
+          logsDir: path.join(rootDir, 'logs'),
+          heartbeatSeconds: 5,
+          staleLeaseSeconds: 30,
+          sessionKeyEnv: 'CODEX_THREAD_ID',
+          extraAllowedRoots: [path.join(rootDir, 'uploads')]
+        },
+        playwright: {}
+      },
+      path.join(rootDir, 'config.toml')
+    );
+
+    await runtime.callTool(1, 'browser_snapshot', {}, []);
+
+    await expect((mockState.clients[0] as { listRootsHandler?: () => Promise<{ roots: Array<{ name: string }> }> }).listRootsHandler?.()).resolves.toEqual({
+      roots: [
+        {
+          uri: new URL(`file://${path.join(rootDir, 'uploads')}`).href,
+          name: path.join(rootDir, 'uploads')
+        }
+      ]
+    });
+  });
+
+  it('客户端 roots 存在时会追加配置里的 extraAllowedRoots', async () => {
+    const runtime = new SlotRuntime(
+      {
+        pool: {
+          size: 1,
+          sourceProfileDir: path.join(rootDir, 'source'),
+          profileDirTemplate: path.join(rootDir, 'profiles/{id}'),
+          outputDirTemplate: path.join(rootDir, 'output/{id}'),
+          leaseDir: path.join(rootDir, 'leases'),
+          logsDir: path.join(rootDir, 'logs'),
+          heartbeatSeconds: 5,
+          staleLeaseSeconds: 30,
+          sessionKeyEnv: 'CODEX_THREAD_ID',
+          extraAllowedRoots: [path.join(rootDir, 'uploads')]
+        },
+        playwright: {}
+      },
+      path.join(rootDir, 'config.toml')
+    );
+
+    await runtime.callTool(
+      1,
+      'browser_snapshot',
+      {},
+      [{ uri: 'file:///client-root', name: 'client-root' }]
+    );
+
+    await expect((mockState.clients[0] as { listRootsHandler?: () => Promise<{ roots: Array<{ name: string }> }> }).listRootsHandler?.()).resolves.toEqual({
+      roots: [
+        {
+          uri: 'file:///client-root',
+          name: 'client-root'
+        },
+        {
+          uri: new URL(`file://${path.join(rootDir, 'uploads')}`).href,
+          name: path.join(rootDir, 'uploads')
+        }
+      ]
+    });
   });
 });
