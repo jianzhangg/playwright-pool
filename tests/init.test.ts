@@ -105,6 +105,10 @@ describe('playwright_pool init defaults', () => {
       playwright: {}
     });
     const prepareProfiles = vi.fn().mockResolvedValue(undefined);
+    const ensureProfileDirClosed = vi.fn().mockResolvedValue(undefined);
+    const pathExists = vi.fn().mockResolvedValue(true);
+    const removeDirRobustly = vi.fn().mockResolvedValue(undefined);
+    const onProgress = vi.fn();
 
     const result = await initializePlaywrightPool(
       {
@@ -114,16 +118,21 @@ describe('playwright_pool init defaults', () => {
         browser: 'edge',
         browserChannel: 'msedge',
         sourceProfileDir,
-        browserExecutablePath
+        browserExecutablePath,
+        onProgress
       },
       {
         mkdir,
         writeFile,
         loadPoolConfig,
-        prepareProfiles
+        prepareProfiles,
+        ensureProfileDirClosed,
+        pathExists,
+        removeDirRobustly
       }
     );
 
+    expect(ensureProfileDirClosed).toHaveBeenCalledWith(resolvedSourceProfileDir);
     expect(mkdir).toHaveBeenCalledWith(runtimeRoot, { recursive: true });
     expect(writeFile).toHaveBeenCalledTimes(1);
     expect(writeFile.mock.calls[0]?.[0]).toBe(configPath);
@@ -141,8 +150,16 @@ describe('playwright_pool init defaults', () => {
         },
         playwright: {}
       },
-      resolvedSourceProfileDir
+      resolvedSourceProfileDir,
+      expect.objectContaining({
+        onProgress: expect.any(Function)
+      })
     );
+    expect(onProgress).toHaveBeenCalledWith('第 1 步/4：检查浏览器是否已完全关闭');
+    expect(onProgress).toHaveBeenCalledWith('第 2 步/4：写入初始化配置');
+    expect(onProgress).toHaveBeenCalledWith('第 3 步/4：准备浏览器副本');
+    expect(onProgress).toHaveBeenCalledWith('第 4 步/4：初始化完成');
+    expect(removeDirRobustly).not.toHaveBeenCalled();
     expect(result).toEqual({
       configPath,
       runtimeRoot,
@@ -151,6 +168,72 @@ describe('playwright_pool init defaults', () => {
       browser: 'edge',
       size: 2
     });
+  });
+
+  it('浏览器仍占用时会在写配置前失败，并提示用户先关闭浏览器', async () => {
+    const configPath = path.resolve('/tmp/playwright-pool/config.toml');
+    const mkdir = vi.fn().mockResolvedValue(undefined);
+    const writeFile = vi.fn().mockResolvedValue(undefined);
+    const ensureProfileDirClosed = vi.fn().mockRejectedValue(new Error('检测到 profile 仍在使用中'));
+
+    await expect(
+      initializePlaywrightPool(
+        {
+          configPath,
+          browser: 'chrome',
+          sourceProfileDir: '/tmp/source'
+        },
+        {
+          mkdir,
+          writeFile,
+          ensureProfileDirClosed
+        }
+      )
+    ).rejects.toThrow(/请先完全关闭浏览器/);
+
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(mkdir).not.toHaveBeenCalled();
+  });
+
+  it('首次初始化在复制阶段失败时会清理当前新建的运行目录', async () => {
+    const configPath = path.resolve('/tmp/playwright-pool/config.toml');
+    const runtimeRoot = path.dirname(configPath);
+    const mkdir = vi.fn().mockResolvedValue(undefined);
+    const writeFile = vi.fn().mockResolvedValue(undefined);
+    const ensureProfileDirClosed = vi.fn().mockResolvedValue(undefined);
+    const pathExists = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(false);
+    const removeDirRobustly = vi.fn().mockResolvedValue(undefined);
+    const loadPoolConfig = vi.fn().mockResolvedValue({
+      pool: {
+        size: 2
+      },
+      playwright: {}
+    });
+    const prepareProfiles = vi.fn().mockRejectedValue(new Error('复制失败'));
+
+    await expect(
+      initializePlaywrightPool(
+        {
+          configPath,
+          browser: 'chrome',
+          sourceProfileDir: '/tmp/source'
+        },
+        {
+          mkdir,
+          writeFile,
+          ensureProfileDirClosed,
+          pathExists,
+          removeDirRobustly,
+          loadPoolConfig,
+          prepareProfiles
+        }
+      )
+    ).rejects.toThrow(/已清理本次新建文件|复制失败/);
+
+    expect(removeDirRobustly).toHaveBeenCalledWith(runtimeRoot);
   });
 
   it('导入 init 模块时不应触发 prepare-profiles CLI 入口', () => {

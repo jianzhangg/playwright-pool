@@ -74,12 +74,12 @@ const CONFIRM_CHOICES: Array<Choice<'yes' | 'no'>> = [
 const PROFILE_SOURCE_CHOICES: Array<Choice<'detected' | 'manual'>> = [
   {
     key: '1',
-    label: '使用探测值',
+    label: '使用这个目录',
     value: 'detected'
   },
   {
     key: '2',
-    label: '手动输入',
+    label: '自己输入其他目录',
     value: 'manual'
   }
 ];
@@ -118,19 +118,18 @@ export async function runInitWizard(
   const runtimeRoot = path.resolve(
     (await io.readLine(`运行目录（直接回车使用默认值） [${defaultRuntimeRoot}]：`)).trim() || defaultRuntimeRoot
   );
-  const size = await promptPositiveInteger(io, 'slot 数量（直接回车使用默认值） [10]：', 10);
+  const size = await promptPositiveInteger(io, '浏览器副本数量（直接回车使用默认值） [10]：', 10);
   const configPath = path.join(runtimeRoot, configFileName);
 
   io.writeLine('');
   io.writeLine('请确认以下初始化配置：');
   io.writeLine(`浏览器：${browserConfig.label}`);
-  io.writeLine(`浏览器 channel：${browserConfig.channel}`);
   io.writeLine(`浏览器可执行文件：${browserExecutablePath ?? '未探测到'}`);
-  io.writeLine(`源 profile：${sourceProfileDir}`);
+  io.writeLine(`浏览器数据目录：${sourceProfileDir}`);
   io.writeLine(`运行目录：${runtimeRoot}`);
   io.writeLine(`配置文件：${configPath}`);
-  io.writeLine(`slot 数量：${size}`);
-  const confirmed = await promptChoice(io, '确认写入配置并准备 profile 吗？', CONFIRM_CHOICES);
+  io.writeLine(`浏览器副本数量：${size}`);
+  const confirmed = await promptChoice(io, '确认开始初始化吗？', CONFIRM_CHOICES);
   if (confirmed !== 'yes') {
     io.writeLine('已取消初始化。');
     return null;
@@ -178,20 +177,20 @@ async function resolveSourceProfileDir(
 ): Promise<string> {
   if (detectedProfileDir) {
     const normalizedDetectedPath = path.resolve(detectedProfileDir);
-    io.writeLine(`探测到默认 profile：${normalizedDetectedPath}`);
-    const profileSource = await promptChoice(io, '请选择 profile 来源：', PROFILE_SOURCE_CHOICES);
+    io.writeLine(`探测到浏览器数据目录：${normalizedDetectedPath}`);
+    const profileSource = await promptChoice(io, '请选择浏览器数据目录来源：', PROFILE_SOURCE_CHOICES);
     if (profileSource === 'detected') {
       return normalizedDetectedPath;
     }
   } else {
-    io.writeLine('未探测到默认 profile，请手动输入源 profile 路径。');
+    io.writeLine('未探测到浏览器数据目录，请手动输入。');
   }
 
   while (true) {
-    const input = (await io.readLine('请输入源 profile 路径：')).trim();
+    const input = (await io.readLine('请输入浏览器数据目录：')).trim();
     const candidate = path.resolve(input);
     if (!input) {
-      io.writeLine('profile 路径不能为空，请重新输入。');
+      io.writeLine('浏览器数据目录不能为空，请重新输入。');
       continue;
     }
     if (!await pathExists(candidate)) {
@@ -234,7 +233,7 @@ async function promptPositiveInteger(io: InitWizardIO, prompt: string, defaultVa
       return parsed;
     }
 
-    io.writeLine('slot 数量必须是正整数，请重新输入。');
+    io.writeLine('浏览器副本数量必须是正整数，请重新输入。');
   }
 }
 

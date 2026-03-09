@@ -26,7 +26,7 @@ function createTestIO(answers: string[]): { io: TestIO; writes: string[] } {
 
 describe('runInitWizard', () => {
   it('选择 Chrome 并接受探测到的默认 profile 与运行目录', async () => {
-    const { io } = createTestIO(['1', '1', '', '', '1']);
+    const { io, writes } = createTestIO(['1', '1', '', '', '1']);
     const result = await runInitWizard(io, {}, {
       detectBrowserProfileDir: vi.fn().mockResolvedValue('C:/Users/alice/AppData/Local/Google/Chrome/User Data'),
       detectBrowserExecutablePath: vi.fn().mockResolvedValue('C:/Program Files/Google/Chrome/Application/chrome.exe'),
@@ -43,6 +43,9 @@ describe('runInitWizard', () => {
       sourceProfileDir: path.resolve('C:/Users/alice/AppData/Local/Google/Chrome/User Data'),
       size: 10
     });
+    expect(writes.some((line) => line.includes('浏览器数据目录'))).toBe(true);
+    expect(writes.some((line) => line.includes('浏览器副本数量'))).toBe(true);
+    expect(writes.every((line) => !line.includes('请选择 profile 来源'))).toBe(true);
   });
 
   it('选择 Edge 且探测不到默认 profile 时允许手动输入', async () => {

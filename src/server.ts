@@ -66,6 +66,7 @@ export async function runInitCommand(
       return;
     }
 
+    io.writeLine('初始化开始后请保持终端打开。复制浏览器数据可能需要几分钟。');
     const result = await initializePool({
       configPath: wizardResult.configPath,
       force: args.force === 'true',
@@ -73,7 +74,10 @@ export async function runInitCommand(
       browser: wizardResult.browser,
       browserChannel: wizardResult.browserChannel,
       sourceProfileDir: wizardResult.sourceProfileDir,
-      browserExecutablePath: wizardResult.browserExecutablePath
+      browserExecutablePath: wizardResult.browserExecutablePath,
+      onProgress: (message) => {
+        io.writeLine(message);
+      }
     });
 
     writeOutput(
@@ -295,4 +299,3 @@ if (isExecutedAsCli(import.meta.url)) {
     process.exitCode = 1;
   });
 }
-

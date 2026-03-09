@@ -20,7 +20,11 @@ describe('runInitCommand', () => {
       close: vi.fn()
     };
     const runInitWizard = vi.fn().mockResolvedValue(edgeWizardResult);
-    const initializePlaywrightPool = vi.fn().mockResolvedValue(edgeWizardResult);
+    const initializePlaywrightPool = vi.fn().mockImplementation(async (options: { onProgress?: (message: string) => void }) => {
+      options.onProgress?.('第 1 步/4：检查浏览器是否已完全关闭');
+      options.onProgress?.('第 3 步/4：准备浏览器副本');
+      return edgeWizardResult;
+    });
     const writeOutput = vi.fn();
 
     await runInitCommand(
@@ -45,8 +49,12 @@ describe('runInitCommand', () => {
       browser: edgeWizardResult.browser,
       browserChannel: edgeWizardResult.browserChannel,
       sourceProfileDir: edgeWizardResult.sourceProfileDir,
-      browserExecutablePath: edgeWizardResult.browserExecutablePath
+      browserExecutablePath: edgeWizardResult.browserExecutablePath,
+      onProgress: expect.any(Function)
     });
+    expect(io.writeLine).toHaveBeenCalledWith('初始化开始后请保持终端打开。复制浏览器数据可能需要几分钟。');
+    expect(io.writeLine).toHaveBeenCalledWith('第 1 步/4：检查浏览器是否已完全关闭');
+    expect(io.writeLine).toHaveBeenCalledWith('第 3 步/4：准备浏览器副本');
     expect(writeOutput).toHaveBeenCalledTimes(1);
     expect(writeOutput.mock.calls[0]?.[0]).toContain('playwright_pool 初始化完成');
     expect(writeOutput.mock.calls[0]?.[0]).toContain('浏览器可执行文件');

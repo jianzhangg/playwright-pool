@@ -32,10 +32,16 @@ npx @jianzhangg/playwright-pool@latest init
 初始化会进入交互式向导，默认会：
 
 - 让你选择 `Google Chrome` 或 `Microsoft Edge`
-- 探测所选浏览器的默认 profile 源目录，并允许你改成手动输入路径
+- 探测所选浏览器的默认浏览器数据目录，并允许你改成手动输入路径
 - 默认把运行目录放到当前系统 `Documents/playwright-pool`
 - 在 Windows 上，如果你重定位过“文档”，这里会自动跟随实际的 Documents 位置
-- 默认准备 10 个 slot 的 profile 副本
+- 默认准备 10 个浏览器副本
+
+初始化开始后：
+
+- 请保持终端窗口打开
+- 复制浏览器数据可能需要几分钟
+- 如果浏览器还没有完全退出，初始化会先提示你关闭浏览器，此时不会写入半成品配置文件
 
 默认配置文件位置：
 
